@@ -12,6 +12,29 @@ from .srtutil import Cue, read_srt, write_srt
 
 MAX_CHARS = 3500      # Google giới hạn ~5000, để biên an toàn
 MAX_LINES = 25        # số câu gộp trong 1 request
+
+# Whisper tra ma ISO 639-1, Google Translate lai dung bo ma rieng cho vai thu
+# tieng. Khong anh xa thi buoc 1 chay xong 15 phut roi buoc 2 chet ngay dong
+# dau - dung cai da xay ra voi mot phim tieng Trung (Whisper 'zh', Google chi
+# nhan 'zh-CN' / 'zh-TW').
+LANG_MAP = {
+    "zh": "zh-CN",      # Whisper khong phan biet gian the / phon the
+    "yue": "zh-TW",     # tieng Quang, Google khong co ma rieng
+    "he": "iw",         # Google giu ma Hebrew cu
+    "jv": "jw",         # Google giu ma Java cu
+    "nb": "no",
+    "nn": "no",
+}
+
+
+def map_lang(code: str) -> str:
+    """Doi ma ngon ngu cua Whisper sang ma Google Translate hieu."""
+    c = (code or "").strip().lower().replace("_", "-")
+    if c in LANG_MAP:
+        return LANG_MAP[c]
+    if c.startswith("zh"):
+        return "zh-TW" if ("tw" in c or "hant" in c or "trad" in c) else "zh-CN"
+    return c
 SEP = "\n"
 
 
@@ -79,7 +102,16 @@ def translate_srt(
 
     cache_path = Path(cache_path or out_srt.with_suffix(".cache.json"))
     cache = _load_cache(cache_path)
-    tr = GoogleTranslator(source=source, target=target)
+    src, tgt = map_lang(source), map_lang(target)
+    if src != source or tgt != target:
+        print(f"  [dich] ma ngon ngu: {source}->{src}, {target}->{tgt}")
+    try:
+        tr = GoogleTranslator(source=src, target=tgt)
+    except Exception as e:
+        raise RuntimeError(
+            f"Google Translate khong nhan cap ngon ngu {src} -> {tgt}. "
+            f"Chay lai va chi dinh tay, vi du: --lang zh-CN --target vi"
+        ) from e
 
     texts = [c.text for c in cues]
     todo = [i for i, t in enumerate(texts) if t not in cache]

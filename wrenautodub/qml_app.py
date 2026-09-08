@@ -146,8 +146,48 @@ class EditorBridge(QObject):
         tl.cues = self.cues
         tl.dub_offset = self.proj.sync_offset
         tl.set_media(self.proj.video, self.proj.dub, self.proj.duration)
+
+        # Noi nguoc lai. Thieu doan nay thi keo clip hay sua toc do trong ban
+        # QML chi doi hinh ve tren widget, con proj khong he hay biet - luc
+        # luu hay xuat la mat sach, khong bao loi gi.
+        tl.clipsChanged.connect(self._pull_clips)
+        tl.speedsChanged.connect(self._pull_speeds)
+        tl.cuesChanged.connect(self._pull_cues)
+        tl.regionsChanged.connect(self._pull_regions)
+        tl.committed.connect(self._pull_all)
+
         item.update()
         self.changed.emit()
+
+    # ------------------------------------------------- dong bo timeline -> proj
+    def _pull_clips(self) -> None:
+        self.proj.clips = list(self.timeline.tl.clips)
+        self.proj.ripple = self.timeline.tl.ripple
+        self.changed.emit()
+
+    def _pull_speeds(self) -> None:
+        tl = self.timeline.tl
+        self.proj.speeds = list(tl.speeds)
+        tl.speeds = self.proj.speeds        # giu lai tham chieu dung chung
+        self.changed.emit()
+
+    def _pull_cues(self) -> None:
+        self.cues = list(self.timeline.tl.cues)
+        self.changed.emit()
+
+    def _pull_regions(self) -> None:
+        tl = self.timeline.tl
+        self.proj.regions = list(tl.regions)
+        tl.regions = self.proj.regions
+        self.changed.emit()
+
+    def _pull_all(self) -> None:
+        """Chot lai moi thu sau mot thao tac hoan tat."""
+        self._pull_clips()
+        self._pull_speeds()
+        self._pull_cues()
+        self._pull_regions()
+        self.proj.sync_offset = self.timeline.tl.dub_offset
 
     @pyqtSlot(str)
     def action(self, what: str) -> None:

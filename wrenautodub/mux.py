@@ -12,11 +12,17 @@ from . import hwaccel
 # Nén sidechain: tiếng gốc tự động hạ xuống mỗi khi giọng thuyết minh cất lên.
 # Nhãn trung gian phải khác [v0], [v1]... vì chuỗi filter video dùng dãy đó,
 # ghép chung một filter_complex mà trùng nhãn là ffmpeg từ chối chạy.
+# aresample=async=1 tren [0:a]: file tai tu HLS hay thieu segment, moc thoi
+# gian van lien mach nhung ben trong hut ca phut am thanh. Khong co no, ffmpeg
+# don hai mep lo lai -> track thuyet minh ngan hon phim va lech dan. Da dinh
+# that: mot phim 15:21 ra track chi 12:03, tu phut 3:22 tro di lech 197 giay.
 DUCK_SIDECHAIN = (
-    "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[orig];"
+    "[0:a]aresample=async=1,"
+    "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[orig];"
     "[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
     "volume={dub}[voice];"
-    "[voice]asplit=2[vc1][sc];"
+    "[voice]asplit=2[vc1][sc0];"
+    "[sc0]apad[sc];"
     "[orig][sc]sidechaincompress=threshold=0.02:ratio=12:attack=15:release=350[duck];"
     "[duck]volume={orig}[bg];"
     "[bg][vc1]amix=inputs=2:duration=first:normalize=0[mixed];"
@@ -25,7 +31,8 @@ DUCK_SIDECHAIN = (
 
 # Hạ tiếng gốc cố định suốt phim (kiểu thuyết minh truyền hình cũ).
 DUCK_FLAT = (
-    "[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+    "[0:a]aresample=async=1,"
+    "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
     "volume={orig}[bg];"
     "[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
     "volume={dub}[voice];"

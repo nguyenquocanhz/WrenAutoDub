@@ -50,12 +50,49 @@ def extract_audio(video: str | Path, out_wav: str | Path, force: bool = False) -
     if not shutil.which("ffmpeg"):
         raise RuntimeError("Không tìm thấy ffmpeg trong PATH")
     print(f"  [ffmpeg] tách audio 16kHz mono -> {out_wav.name}")
+    # aresample=async=1 BẮT BUỘC. File tải từ HLS hay bị thiếu segment: mốc thời
+    # gian của gói tin vẫn liền mạch nhưng bên trong hụt mất cả phút âm thanh.
+    # Không có nó, ffmpeg dồn hai mép lỗ lại với nhau, thoát mã 0, không cảnh báo
+    # gì — và mọi câu thoại sau lỗ bị đẩy sớm đúng bằng độ dài lỗ.
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-i", str(video),
-         "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)],
+         "-vn", "-af", "aresample=async=1",
+         "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)],
         check=True,
     )
+    _check_duration(video, out_wav)
     return out_wav
+
+
+def _probe_duration(path) -> float:
+    """Thời lượng theo ffprobe, 0.0 nếu không đọc được."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=60)
+        return float((r.stdout or "").strip() or 0.0)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return 0.0
+
+
+def _check_duration(video, wav, tol: float = 1.0) -> None:
+    """Audio rút ra phải dài gần bằng phim. Lệch là hỏng cả bản thuyết minh.
+
+    Đây là chốt chặn cho đúng loại lỗi vừa gặp: ffmpeg thoát 0, file nghe vẫn
+    bình thường, chỉ có điều nó ngắn hơn phim và mốc thoại lệch dần.
+    """
+    dv, dw = _probe_duration(video), _probe_duration(wav)
+    if dv <= 0 or dw <= 0:
+        return
+    if abs(dv - dw) <= max(tol, dv * 0.005):
+        return
+    raise RuntimeError(f"""
+Audio tach ra dai {dw:.1f}s nhung phim dai {dv:.1f}s (lech {dv - dw:+.1f}s).
+File nguon nhieu kha nang bi thieu doan - hay gap o ban tai HLS.
+Neu van muon chay, va lai file roi chay tren ban va:
+  ffmpeg -i "{video}" -c:v copy -af aresample=async=1 "phim_va.mp4"
+""".strip())
 
 
 def _smoke_test(model) -> None:

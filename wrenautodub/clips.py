@@ -145,13 +145,20 @@ def compose(clips: Sequence[Clip], speed_segs: Sequence[Segment],
             items.append(("gap", b - a))
             continue
         c = seq[i]
-        cur = c.src_start
-        for sa, sb, f in speed_segs:
-            lo, hi = max(cur, sa), min(c.src_end, sb)
-            if hi - lo > 0.01:
-                items.append(("src", lo, hi, f))
-        if not speed_segs:
-            items.append(("src", c.src_start, c.src_end, 1.0))
+        # Phai phu KIN [src_start, src_end]. Ban cu chi lay phan giao voi bang
+        # toc do, nen clip nam ngoai bang bi vut im lang: items rong -> khong
+        # dung filter nao -> ban xuat ra NGUYEN phim goc thay vi doan da cat.
+        pos = c.src_start
+        for sa, sb, f in sorted(speed_segs, key=lambda x: x[0]):
+            lo, hi = max(pos, sa), min(c.src_end, sb)
+            if hi - lo <= 0.01:
+                continue
+            if lo - pos > 0.01:
+                items.append(("src", pos, lo, 1.0))   # khoang bang toc do khong phu
+            items.append(("src", lo, hi, f))
+            pos = hi
+        if c.src_end - pos > 0.01:
+            items.append(("src", pos, c.src_end, 1.0))
     return items
 
 
@@ -224,20 +231,34 @@ def remap_cues_clips(cues, clips: Sequence[Clip], speed_segs: Sequence[Segment],
     items = compose(clips, speed_segs, ripple)
     out = []
     for c in cues:
-        a, b = c.start + offset, c.end + offset
-        s, e = _map(a, items), _map(b, items)
-        if s is None and e is None:
-            continue                    # cả câu nằm gọn trong đoạn đã cắt
-        if e is None:
-            # Câu bắt đầu ở phần giữ lại nhưng kéo sang phần đã cắt: cắt cụt
-            # nó ở mối nối thay vì bỏ, không thì mất phụ đề cho đoạn còn giữ.
-            e = _edge_after(s, items)
-        elif s is None:
-            s = _edge_before(e, items)
+        s, e = _span(c.start + offset, c.end + offset, items)
         if s is None or e is None or e - s < 0.05:
             continue
         out.append(Cue(s, e, c.text))
     return out
+
+
+def _span(a: float, b: float, items: Sequence[tuple]):
+    """Doan [a,b] cua file goc con lai o dau tren ban dung.
+
+    Xet TUNG manh thay vi chi anh xa hai dau. Kiem hai dau thi cau nao co
+    diem dau va diem cuoi roi vao HAI doan cat khac nhau se bi ket luan nham
+    la "cat het" va bi bo, du khuc giua no van con tren ban dung.
+    """
+    t = 0.0
+    lo = hi = None
+    for it in items:
+        if it[0] == "gap":
+            t += it[1]
+            continue
+        _k, sa, sb, f = it
+        oa, ob = max(a, sa), min(b, sb)
+        if ob > oa:
+            d0, d1 = t + (oa - sa) / f, t + (ob - sa) / f
+            lo = d0 if lo is None else min(lo, d0)
+            hi = d1 if hi is None else max(hi, d1)
+        t += (sb - sa) / f
+    return lo, hi
 
 
 def _edge_after(dest: float, items: Sequence[tuple]) -> Optional[float]:

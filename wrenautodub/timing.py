@@ -71,11 +71,11 @@ def timeline(speeds: Sequence[Speed], duration: float) -> List[Segment]:
     segs: List[Segment] = []
     t = 0.0
     for s in normalize(speeds, duration):
-        if s.start - t > 0.01:
+        if s.start - t > 1e-6:
             segs.append((t, s.start, 1.0))
         segs.append((s.start, s.end, s.factor))
         t = s.end
-    if duration - t > 0.01:
+    if duration - t > 1e-6:
         segs.append((t, duration, 1.0))
     return segs or [(0.0, max(duration, 0.01), 1.0)]
 
@@ -102,6 +102,8 @@ def atempo_chain(factor: float) -> str:
     """Nối nhiều atempo vì mỗi cái chỉ kham được 0.5–100."""
     parts: List[str] = []
     f = float(factor)
+    if not (f > 0):        # 0, am, NaN -> vong chia khong bao gio thoat
+        raise ValueError(f"he so toc do phai duong, nhan duoc {factor!r}")
     while f < ATEMPO_MIN - 1e-9:
         parts.append(f"atempo={ATEMPO_MIN}")
         f /= ATEMPO_MIN

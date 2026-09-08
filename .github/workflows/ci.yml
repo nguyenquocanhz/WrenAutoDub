@@ -1,0 +1,154 @@
+# CI cho WrenAutoDub.
+#
+# Nguyên tắc: CI chỉ kiểm được TẦNG LOGIC THUẦN. Nó KHÔNG:
+#   - cài GPU / CUDA (runner GitHub không có card NVIDIA)
+#   - tải model Whisper (vài GB, và HF_HUB_OFFLINE=1 chặn sẵn)
+#   - gọi Google Translate hay edge-tts (cần mạng, hay rate-limit, hay đỏ oan)
+#   - chạy ffmpeg thật (mọi kiểm chứng filter phải làm tay trên máy — xem
+#     CLAUDE.md, quy tắc "chạy thật rồi đối chiếu ffprobe")
+#
+# Vì vậy CI xanh KHÔNG có nghĩa là pipeline video đúng. Nó chỉ bảo đảm code
+# không lỗi cú pháp, không gọi tên không tồn tại, và test logic còn qua.
+#
+# Mục tiêu thời gian: dưới 3 phút. Đừng thêm faster-whisper / ctranslate2 /
+# vieneu / torch vào đây — không module logic nào import chúng ở cấp module
+# (chỉ import bên trong hàm), nên test logic không cần.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Push liên tiếp lên cùng một nhánh thì huỷ lần chạy cũ, đỡ tốn runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Chặn mọi lần tải model lỡ tay. Có test nào chạm tới HuggingFace là đỏ ngay
+  # thay vì âm thầm tải vài GB rồi timeout.
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Cú pháp + tên không tồn tại. Không cài dependency nào của app.
+  # ---------------------------------------------------------------------
+  syntax:
+    name: Cú pháp
+    runs-on: windows-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # App chạy Python 3.14 trên máy tác giả. Nếu setup-python chưa có
+          # 3.14 trong manifest thì đổi tạm sang '3.13'.
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Biên dịch toàn bộ .py
+        shell: pwsh
+        run: |
+          # compileall trả về khác 0 nếu có file không parse được.
+          $targets = @('wren.py', 'wrenautodub')
+          if (Test-Path 'tests') { $targets += 'tests' }
+          python -m compileall -q $targets
+
+      - name: Cài ruff
+        shell: pwsh
+        run: python -m pip install "ruff>=0.6"
+
+      - name: Bắt lỗi thật bằng ruff
+        shell: pwsh
+        run: |
+          # Chỉ bật nhóm lỗi THẬT, không bật nhóm phong cách:
+          #   E9  lỗi cú pháp / thụt lề
+          #   F63 so sánh sai kiểu (vd `is` với literal)
+          #   F7  câu lệnh đặt sai chỗ (break ngoài vòng lặp...)
+          #   F82 dùng tên chưa định nghĩa  <-- bắt được nhiều bug nhất
+          #   F81 gán tên trùng builtin / redefinition
+          python -m ruff check --select E9,F63,F7,F81,F82 --output-format concise .
+
+      - name: Kiểm quy tắc kiến trúc — tầng logic không được import QtWidgets
+        shell: pwsh
+        run: |
+          # Quy tắc này là lý do chuyển sang QML chỉ tốn vài file. Xem CLAUDE.md.
+          # Lưu ý: chỉ cấm QtWidgets. QtCore/QtGui được phép (media_strip.py
+          # dùng QPixmap và QProcess một cách có chủ đích).
+          $logic = @(
+            'asr.py', 'translate.py', 'tts.py', 'mux.py', 'handoff.py',
+            'edit.py', 'clips.py', 'timing.py', 'export.py',
+            'hwaccel.py', 'models.py', 'cudafix.py', 'srtutil.py'
+          )
+          $viPham = @()
+          foreach ($f in $logic) {
+            $p = Join-Path 'wrenautodub' $f
+            if (-not (Test-Path $p)) { continue }
+            if (Select-String -Path $p -Pattern 'PyQt6\.QtWidgets' -Quiet) {
+              $viPham += $f
+            }
+          }
+          if ($viPham.Count -gt 0) {
+            Write-Host "::error::Tầng logic import QtWidgets: $($viPham -join ', ')"
+            Write-Host "Đưa phần giao diện sang gui.py / editor*.py / qml_*.py."
+            exit 1
+          }
+          Write-Host "Tầng logic sạch — không file nào import QtWidgets."
+
+  # ---------------------------------------------------------------------
+  # Test logic thuần. Chỉ cài dependency mà module logic import Ở CẤP MODULE.
+  # ---------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cài dependency tối thiểu
+        shell: pwsh
+        run: |
+          # numpy + soundfile: tts.py và media_strip.py import ở cấp module.
+          # deep-translator: nhẹ (chỉ requests + bs4), có test nào import
+          #   translate.py rồi monkeypatch thì vẫn chạy được.
+          # KHÔNG cài: faster-whisper, ctranslate2, vieneu, torch, PyQt6.
+          #   Chúng chỉ được import bên trong hàm, và nặng.
+          python -m pip install --upgrade pip
+          python -m pip install "numpy>=1.24" "soundfile>=0.12.1" `
+                                "deep-translator>=1.11.0" "pytest>=8.0"
+
+      - name: Chạy pytest
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'tests')) {
+            Write-Host "::notice::Chưa có thư mục tests/ — bỏ qua bước này."
+            exit 0
+          }
+
+          python -m pytest -q
+          $ma = $LASTEXITCODE
+
+          # pytest quy ước: 5 = không thu được test nào. Thư mục tests/ có thể
+          # đang được viết dở, không tính là hỏng.
+          if ($ma -eq 5) {
+            Write-Host "::notice::pytest không thu được test nào (mã 5) — bỏ qua."
+            exit 0
+          }
+          exit $ma

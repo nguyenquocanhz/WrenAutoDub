@@ -1098,12 +1098,20 @@ class EditorWindow(QWidget):
             return
         self.proj.regions = proj.regions
         self.proj.speeds = proj.speeds
+        # Thieu ba dong duoi thi undo sau khi cat clip tra ve trang thai lai:
+        # vung va toc do lui lai, clip thi khong - roi save_project ghi nguyen
+        # cai lai do xuong dia.
+        self.proj.clips = proj.clips
+        self.proj.dub_clips = proj.dub_clips
+        self.proj.ripple = proj.ripple
         self.proj.sync_offset = proj.sync_offset
         self.proj.export = proj.export
         self.preview.proj = self.proj
         self.preview.sel = min(self.preview.sel, len(self.proj.regions) - 1)
         self.tl.speeds = self.proj.speeds
         self.tl.regions = self.proj.regions
+        self.tl.clips = self.proj.live_clips()
+        self.tl.ripple = self.proj.ripple
         self.tl.dub_offset = self.proj.sync_offset
         self.tl.sel = -1
         self.sp_sync.blockSignals(True)

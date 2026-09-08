@@ -17,6 +17,12 @@
 !wrenautodub/**
 !tests/
 !tests/**
+!pytest.ini
+!requirements.txt
+!.github/
+!.github/**
+!packaging/
+!packaging/**
 
 # Rác sinh ra lúc chạy
 wrenautodub/__pycache__/

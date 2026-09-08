@@ -1,0 +1,80 @@
+# WrenAutoDub — dependency Python.
+#
+#     pip install -r requirements.txt
+#
+# Ngoài các package dưới đây còn cần **ffmpeg** và **ffprobe** trong PATH,
+# bản build có filter `rubberband` (ép timing giọng đọc). pip không cài được
+# ffmpeg — tải riêng ở https://www.gyan.dev/ffmpeg/builds/ (bản "full").
+#
+# Cài xong chạy `python wren.py doctor` để kiểm hết một lượt.
+#
+# ĐỌC TRƯỚC KHI CÀI: engine thuyết minh mặc định là `vieneu`, nằm ở nhóm TUỲ
+# CHỌN bên dưới vì nó kéo theo torch (~2.5 GB). Không cài vieneu thì phải chạy
+# với `--tts edge` (cần edge-tts, nhẹ, nhưng gọi mạng ra Microsoft).
+
+
+# =============================================================== BẮT BUỘC ===
+# Thiếu bất kỳ dòng nào ở đây là app không chạy được.
+
+# Nhận dạng tiếng Nhật. 1.1 trở lên vì API WhisperModel ổn định từ đó.
+faster-whisper>=1.1.0
+
+# Backend suy luận của faster-whisper. 4.5 trở lên vì các bản trước link cuDNN 8,
+# còn cudafix.py nạp cudnn_ops64_9.dll (cuDNN 9).
+ctranslate2>=4.5.0
+
+# Dịch Nhật → Việt qua Google Translate.
+deep-translator>=1.11.0
+
+# Đọc/ghi WAV ở bước TTS và trích dạng sóng cho timeline.
+soundfile>=0.12.1
+
+# Xử lý mẫu âm thanh. Python 3.13+ thì pip tự lấy numpy 2.x.
+numpy>=1.24
+
+# Tải model Whisper về cache HuggingFace (wrenautodub/models.py).
+huggingface-hub>=0.24
+
+# Cả hai giao diện (Widgets và QML). Kéo theo PyQt6-Qt6 và PyQt6-sip.
+# 6.6 trở lên vì QtQuick + QQuickPaintedItem trong PyQt6 chỉ ổn định từ đó.
+PyQt6>=6.6
+
+
+# ================================================================ TUỲ CHỌN ===
+# Bỏ dấu # ở dòng cần dùng. Không cài thì app vẫn chạy, chỉ mất tính năng đó.
+
+# --- Engine thuyết minh (cần ít nhất MỘT trong hai) -------------------------
+
+# Engine mặc định (`--tts vieneu`). Chạy local, không cần mạng, giọng tự nhiên
+# hơn. Nặng: kéo theo torch + transformers, khoảng 2.5 GB.
+# vieneu>=3.0
+
+# Engine thay thế (`--tts edge`). Nhẹ (vài MB) nhưng gọi ra server Microsoft,
+# nên cần mạng và không còn là "chạy hoàn toàn local".
+# edge-tts>=7.0
+
+# --- Tăng tốc GPU NVIDIA ----------------------------------------------------
+# Không cài thì ASR chạy CPU — đúng kết quả nhưng chậm hàng chục lần.
+# Nặng (~1 GB, riêng cudnn đã ~700 MB). Chỉ dùng được với card NVIDIA.
+# Cài xong nhớ rằng cudafix.enable_cuda_dlls() phải chạy TRƯỚC khi import
+# ctranslate2 — Windows không tự tìm DLL trong package pip nvidia-*.
+# nvidia-cublas-cu12>=12.4
+# nvidia-cudnn-cu12>=9.0
+
+# --- Vặt --------------------------------------------------------------------
+# Đo RAM/CPU của tiến trình con trong cửa sổ sửa video (wrenautodub/editor.py).
+# Thiếu thì chỉ mất phần hiển thị đó.
+# psutil>=5.9
+
+
+# ====================================================== CHỈ ĐỂ PHÁT TRIỂN ===
+# Người dùng cuối không cần. CI cài riêng, không đọc nhóm này.
+
+# Chạy test: python -m pytest -q
+# pytest>=8.0
+
+# Lint / kiểm cú pháp nhanh: python -m ruff check .
+# ruff>=0.6
+
+# Đóng gói .exe — xem packaging/README.md TRƯỚC KHI DÙNG, có nhiều chỗ vướng.
+# pyinstaller>=6.10

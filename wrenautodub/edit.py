@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -103,6 +103,11 @@ class Project:
     @classmethod
     def from_dict(cls, d: dict) -> "Project":
         p = cls()
+        # Chi cho ghi de dung cac TRUONG du lieu. Dung hasattr thi khoa
+        # trung ten phuong thuc (items, save, segments...) cung lot qua,
+        # setattr de mat luon ham - va no khi xuat ban chu khong phai
+        # luc mo file, nen rat kho lan ra nguyen nhan.
+        _data_fields = {f.name for f in fields(cls)}
         for k, v in d.items():
             if k == "regions":
                 p.regions = [Region(**r) for r in v]
@@ -114,7 +119,7 @@ class Project:
                 p.dub_clips = [Clip(**r) for r in v]
             elif k == "export":
                 p.export = ExportSettings(**v)
-            elif hasattr(p, k):
+            elif k in _data_fields:
                 setattr(p, k, v)
         return p
 
@@ -295,7 +300,7 @@ def build_video_chain(proj: Project, vw: int, vh: int,
 
 
 def needs_reencode(proj: Project) -> bool:
-    return bool([r for r in proj.regions if r.enabled]) \
+    return bool(proj.clips) or bool(proj.dub_clips) or bool([r for r in proj.regions if r.enabled]) \
         or has_speed(proj.segments()) \
         or abs(proj.sync_offset) > 0.005 \
         or proj.export.hardsub \
@@ -326,7 +331,11 @@ def build_audio_graph(proj: "Project", duck: str = "sidechain",
 
     if duck == "sidechain":
         parts += [
-            f"[{avoice}]asplit=2[avc][asc]",
+            # asc chi dung lam tin hieu dieu khien. Khong apad thi
+            # sidechaincompress dung ngay khi thuyet minh het, cat cut ca ban
+            # tron - phim cau chet mấy phut cuoi ma thoi luong van dung.
+            f"[{avoice}]asplit=2[avc][asc0]",
+            "[asc0]apad[asc]",
             f"[{aorig}][asc]sidechaincompress=threshold=0.02:ratio=12:"
             "attack=15:release=350[aduck]",
             f"[aduck]volume={orig_vol}[abg]",
@@ -352,7 +361,10 @@ def build_full_graph(proj: "Project", vw: int, vh: int, srt_escaped: str = "",
     sang thời gian mới), cuối cùng đổi cỡ.
     """
     parts: List[str] = []
-    chain, extra, cur = build_video_chain(proj, vw, vh, "", logo_base=2,
+    # Chi so input cua anh logo: 0 la phim, 1 la dub.wav NEU co. Khong co dub
+    # ma van de 2 thi ffmpeg bao "Invalid file index 2" va bo xuat chet ngay.
+    chain, extra, cur = build_video_chain(proj, vw, vh, "",
+                                          logo_base=2 if has_dub else 1,
                                           do_scale=False)
     if chain:
         parts.append(chain)
@@ -373,5 +385,15 @@ def build_full_graph(proj: "Project", vw: int, vh: int, srt_escaped: str = "",
     if has_dub:
         parts.extend(build_audio_graph(proj, duck, orig_vol, dub_vol))
         alabel = "aout"
+    elif proj.clips or proj.speeds or proj.sync_offset:
+        # Khong co thuyet minh thi TIENG GOC van phai cat va doi toc do y het
+        # hinh. Thieu nhanh nay, export map thang 0:a:0 -> hinh cat con tieng
+        # nguyen ban: da do duoc hinh 14.000s / tieng 20.043s, va giay thu 7
+        # phat dung doan vua bi cat khoi hinh.
+        parts.append(f"[0:a]{AF}[aonly0]")
+        ap, alabel = build_items_audio(proj.items(), "aonly0", tag="cso")
+        parts.extend(ap)
+        if not ap:
+            alabel = "aonly0"
 
     return ";".join(parts), extra, cur, alabel

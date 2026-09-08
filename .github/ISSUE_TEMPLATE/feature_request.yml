@@ -1,0 +1,124 @@
+name: "Đề xuất tính năng / Feature request"
+description: "Muốn app làm được thêm việc gì đó. / Ask for something the app cannot do yet."
+title: "[Đề xuất] "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Trước khi viết, xin đọc phần **Tình trạng** trong `README.md`. Một số
+        thứ đã nằm sẵn trong kế hoạch (fade, keyframe âm lượng, transition
+        giữa clip) — nếu trùng thì cứ bấm 👍 vào issue có sẵn, đỡ tản ra.
+
+        Before writing, please read the **Tình trạng / Status** section of
+        `README.md`. A few things are already planned (fades, volume
+        keyframes, transitions between clips) — if yours matches, just 👍 the
+        existing issue instead of opening a new one.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Bạn đang vướng chuyện gì? / What problem are you hitting?"
+      description: |
+        Mô tả tình huống thật, đừng mô tả giải pháp. Biết bạn vướng ở đâu thì
+        có khi có cách giải quyết gọn hơn cái bạn đang nghĩ tới.
+
+        Describe the real situation, not the solution. Knowing where you are
+        stuck often reveals a simpler fix than the one you had in mind.
+      placeholder: |
+        Tôi dịch phim tài liệu, mỗi phim có 5-6 người nói. Hiện tại cả phim
+        chỉ một giọng đọc nên người xem không phân biệt được ai đang nói.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Bạn muốn app làm gì? / What should the app do?"
+      description: |
+        Càng cụ thể càng tốt: tên lệnh, tên nút, tham số dòng lệnh mong muốn.
+        As concrete as possible: command names, button labels, CLI flags.
+      placeholder: |
+        Thêm `--voices vi-VN-NamMinh,vi-VN-HoaiMy` để luân phiên giọng theo
+        người nói, và một cột "Giọng" trong bảng phụ đề ở cửa sổ sửa.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Thuộc phần nào? / Which part?"
+      options:
+        - "Nhận dạng tiếng Nhật / ASR"
+        - "Dịch / Translation"
+        - "Thuyết minh / TTS"
+        - "Trộn tiếng, ghép video / Audio mixing and muxing"
+        - "Cửa sổ sửa video, hiệu ứng, xuất bản / Video editor"
+        - "Giao diện / GUI"
+        - "Dòng lệnh / Command line"
+        - "Đóng gói, cài đặt / Packaging and installation"
+        - "Tài liệu / Documentation"
+        - "Khác / Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Bạn đang xoay xở thế nào? / How do you work around it now?"
+      description: |
+        Cách làm tay hiện tại, hoặc phần mềm khác bạn phải dùng kèm. Nếu
+        `wren.py handoff` (xuất sang CapCut / Premiere / DaVinci) đã giải
+        quyết được thì nói luôn, vì có khi chỉ cần ghi rõ vào tài liệu.
+
+        Your current manual workaround, or other software you use alongside.
+        If `wren.py handoff` (export to CapCut / Premiere / DaVinci) already
+        solves it, say so — it may just need documenting.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: "Việc này phá vỡ điều gì không? / Does this break a project rule?"
+      description: |
+        Dự án cố giữ: chạy hoàn toàn local, không server, không app di động,
+        không API mạng ngoài Google Translate và edge-tts. Đề xuất vẫn được
+        hoan nghênh, chỉ cần nói thẳng để bàn cho đúng hướng.
+
+        The project deliberately stays: fully local, no server, no mobile
+        app, no network APIs beyond Google Translate and edge-tts. Proposals
+        that cross those lines are still welcome — just say so upfront.
+      options:
+        - "Không, nằm trong phạm vi hiện tại / No, it fits the current scope"
+        - "Có, cần thêm dependency mới / Yes, it needs a new dependency"
+        - "Có, cần gọi mạng ra ngoài / Yes, it needs an outside network call"
+        - "Có, cần chạy trên hệ điều hành khác / Yes, it needs another OS"
+        - "Không chắc / Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: "Còn gì khác / Anything else"
+      description: |
+        Ảnh chụp màn hình phần mềm khác làm việc này, link tài liệu, bản phác
+        giao diện. Kéo thả file vào ô này là tải lên được.
+
+        Screenshots of other software doing this, links, interface sketches.
+        Drag and drop files here to attach them.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: "Bạn có muốn tự làm không? / Would you like to implement it?"
+      description: |
+        Không bắt buộc chút nào. Dự án dùng giấy phép AGPL-3.0.
+        Entirely optional. The project is licensed AGPL-3.0.
+      options:
+        - label: "Tôi sẵn sàng gửi pull request cho việc này. / I am willing to open a pull request for this."
+          required: false

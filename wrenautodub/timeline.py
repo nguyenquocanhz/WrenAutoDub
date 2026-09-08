@@ -593,8 +593,12 @@ class Timeline(QWidget):
                 self.playhead = self.cues[i].start
                 self.seeked.emit(self.playhead)
         elif lane == L_SPEED:
-            self.speeds = normalize(self.speeds, self.duration)
+            # Sua TAI CHO. Gan bang dau '=' se tao list moi, cat dut tham chieu
+            # dung chung voi proj.speeds -> tren man hinh thay doan da xoa,
+            # nhung luc xuat van con nguyen.
+            self.speeds[:] = normalize(self.speeds, self.duration)
             self.sel_idx = min(self.sel_idx, len(self.speeds) - 1)
+            self.speedsChanged.emit()
 
         self.committed.emit()
         self.update()

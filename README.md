@@ -1,10 +1,12 @@
 # WrenAutoDub
 
-Thuyết minh tự động phim tiếng Nhật sang tiếng Việt, chạy hoàn toàn trên máy bạn.
+Thuyết minh tự động phim nước ngoài sang tiếng Việt, chạy hoàn toàn trên máy bạn.
 
 Đưa vào một file phim, nhận về bản có giọng đọc tiếng Việt khớp từng câu thoại,
 phụ đề đã dịch, và tiếng gốc vẫn nghe được phía dưới. Không upload phim đi đâu,
 không tài khoản, không hạn mức.
+
+Whisper tự nhận ngôn ngữ nguồn — đã chạy thật với tiếng Nhật và tiếng Trung.
 
 ![Trình dựng](docs/editor.png)
 
@@ -14,7 +16,7 @@ Hầu hết công cụ dựng phim mã nguồn mở đang cố làm lại CapCut
 cạnh tranh ở đó — nó làm một việc mà không công cụ nào khác làm:
 
 **Ép giọng đọc vừa khít khung thời gian của từng câu phụ đề.** Câu tiếng Việt
-thường dài hơn câu tiếng Nhật gốc. Thay vì để giọng đọc tràn sang câu sau, nó
+thường dài hơn câu gốc. Thay vì để giọng đọc tràn sang câu sau, nó
 tăng tốc từng câu bằng `rubberband` (giữ nguyên cao độ, không bị the thé), cắt
 khoảng lặng đầu file, và đặt đúng vào mốc thời gian. Đo được: lệch **0.03 giây**
 so với mốc phụ đề.
@@ -51,7 +53,7 @@ Dừng giữa chừng thoải mái — mọi bước ghi kết quả ra `phim_wo
 
 | Bước | Làm gì | Bằng gì |
 |---|---|---|
-| 1 | nhận dạng tiếng Nhật → `ja.srt` | faster-whisper (CUDA int8_float16) |
+| 1 | nhận dạng tiếng nói → `ja.srt` | faster-whisper (CUDA int8_float16) |
 | 2 | dịch → `vi.srt` | Google Translate |
 | 3 | đọc + ép timing → `dub.wav` | VieNeu-TTS + rubberband |
 | 4 | trộn và ghép vào video | ffmpeg |
@@ -110,8 +112,18 @@ phụ đề, xuất bản).
 Chưa có: fade, keyframe âm lượng, transition giữa clip.
 
 Đã kiểm với mkv h264/hevc kèm aac, ac3, e-ac3, dts, flac — 8/8 phát trực tiếp
-được. Chưa chạy thử trên phim dài hơn vài phút, nên số đo tốc độ suy ra từ clip
-ngắn.
+được.
+
+Đã chạy trọn chuỗi trên một phim thật 15 phút 21 giây (tiếng Trung, 154 câu):
+toàn bộ hết **4,4 phút**, riêng bước nhận dạng 1,4 phút. Bản ra đã kiểm bằng
+nội dung chứ không chỉ thời lượng — giọng đọc nổ đúng mốc phụ đề, tiếng gốc
+chạy liền tới phút cuối.
+
+Phim đó thiếu mất 3 phút 18 giây âm thanh do tải hụt segment HLS. Công cụ giữ
+nguyên trục thời gian và để đoạn đó im lặng, thay vì dồn hai mép lỗ lại làm
+mọi câu thoại phía sau lệch sớm đúng 3 phút 18 giây. Nếu vì lý do nào khác mà
+audio tách ra vẫn không dài bằng phim, bước 1 dừng và nói rõ lệch bao nhiêu
+chứ không chạy tiếp để cho ra bản hỏng.
 
 ## Giấy phép
 

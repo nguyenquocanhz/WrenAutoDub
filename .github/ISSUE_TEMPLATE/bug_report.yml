@@ -1,0 +1,207 @@
+name: "Báo lỗi / Bug report"
+description: "Có gì đó không chạy đúng. / Something does not work."
+title: "[Lỗi] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn đã báo lỗi.
+
+        **Bốn ô có dấu \* quyết định khoảng 90% ca lỗi của app này.** Thiếu
+        chúng thì gần như chắc chắn phải hỏi lại, và chuyện xử lý chậm thêm
+        vài ngày. Xin điền đủ, kể cả khi bạn thấy chúng không liên quan.
+
+        ---
+
+        Thanks for the report.
+
+        **The four fields marked \* decide roughly 90% of this app's bugs.**
+        Without them we will almost certainly have to ask you again, costing
+        several days. Please fill them in even if they seem unrelated.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "Chuyện gì xảy ra? / What happened?"
+      description: |
+        Bạn mong đợi gì, thực tế xảy ra gì. Kèm thông báo lỗi đầy đủ nếu có.
+        What you expected, what actually happened. Include the full error text.
+      placeholder: |
+        Chạy `python wren.py run "phim.mkv"`, tới bước 3 thì dừng và báo:
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "* Output của `python wren.py doctor` / Output of `python wren.py doctor`"
+      description: |
+        Dán TOÀN BỘ, đừng cắt bớt. Lệnh này đã kiểm sẵn DLL CUDA, filter
+        ffmpeg, model đã tải và kết nối mạng — nó thường chỉ thẳng ra nguyên
+        nhân.
+
+        Paste the WHOLE thing, do not trim. This command already checks CUDA
+        DLLs, ffmpeg filters, downloaded models and network — it usually
+        points straight at the cause.
+      render: text
+      placeholder: |
+        > python wren.py doctor
+            MỤC                    CHI TIẾT
+        ------------------------------------------------------------------
+        OK  Python                 3.14.6
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: ffmpeg
+    attributes:
+      label: "* Phiên bản ffmpeg / ffmpeg version"
+      description: |
+        Chạy `ffmpeg -version` và dán 3 dòng đầu. Bản thiếu `rubberband`,
+        `silenceremove` hay `sidechaincompress` sẽ hỏng ở bước trộn tiếng —
+        đây là nguyên nhân phổ biến nhất.
+
+        Run `ffmpeg -version` and paste the first 3 lines. Builds missing
+        `rubberband`, `silenceremove` or `sidechaincompress` break the audio
+        mixing step — this is the single most common cause.
+      render: text
+      placeholder: |
+        ffmpeg version 7.1-full_build-www.gyan.dev Copyright (c) 2000-2024 ...
+        built with gcc 13.2.0 (Rev5, Built by MSYS2 project)
+        configuration: --enable-gpl --enable-librubberband ...
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: "* Card đồ hoạ + VRAM / GPU and VRAM"
+      description: |
+        Chạy `nvidia-smi` và ghi tên card cùng dung lượng. Không có card
+        NVIDIA thì ghi rõ "chạy CPU". App được chỉnh cho GPU 4GB — máy nhiều
+        hoặc ít VRAM hơn hay lộ ra lỗi khác hẳn.
+
+        Run `nvidia-smi` and give the card name and memory. If you have no
+        NVIDIA card, write "CPU only". The app is tuned for 4GB GPUs — more
+        or less VRAM tends to surface entirely different bugs.
+      placeholder: "GTX 1650 Ti, 4096 MiB — hoặc / or: không có GPU, chạy CPU"
+    validations:
+      required: true
+
+  - type: textarea
+    id: media-format
+    attributes:
+      label: "* Định dạng file phim / Video file format"
+      description: |
+        Chạy lệnh dưới đây rồi dán kết quả. Codec tiếng (ac3, e-ac3, dts,
+        flac) và container quyết định nhánh xử lý nào được chạy.
+
+        Run the command below and paste the result. The audio codec (ac3,
+        e-ac3, dts, flac) and container decide which code path runs.
+
+        ```
+        ffprobe -v error -show_entries stream=index,codec_type,codec_name,channels -show_entries format=format_name,duration -of default=noprint_wrappers=1 "phim.mkv"
+        ```
+      render: text
+      placeholder: |
+        index=0
+        codec_type=video
+        codec_name=hevc
+        index=1
+        codec_type=audio
+        codec_name=eac3
+        channels=6
+        format_name=matroska,webm
+        duration=1423.488000
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Cách tái hiện / Steps to reproduce"
+      description: |
+        Lệnh chính xác bạn đã chạy, hoặc thao tác nào trên giao diện.
+        The exact command you ran, or which clicks in the GUI.
+      placeholder: |
+        1. python wren.py run "phim.mkv" --tts edge
+        2. Đợi tới bước 4
+        3. Báo lỗi
+    validations:
+      required: false
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: "Lỗi xảy ra ở đâu? / Where did it happen?"
+      options:
+        - "Dòng lệnh / Command line (wren.py)"
+        - "Giao diện Widgets / Widgets GUI (wren.py gui)"
+        - "Cửa sổ sửa video / Video editor (wren.py edit)"
+        - "Giao diện QML / QML GUI"
+        - "Không rõ / Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: step
+    attributes:
+      label: "Bước nào trong pipeline? / Which pipeline step?"
+      description: "Bỏ qua nếu lỗi không thuộc pipeline. / Skip if not pipeline related."
+      options:
+        - "1 — Nhận dạng tiếng Nhật / ASR"
+        - "2 — Dịch sang tiếng Việt / Translate"
+        - "3 — Thuyết minh / TTS"
+        - "4 — Trộn tiếng và ghép video / Mux"
+        - "Xuất bản / Export"
+        - "Không thuộc bước nào / None of these"
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: "Phiên bản WrenAutoDub / WrenAutoDub version"
+      description: |
+        Chạy `python -c \"import wrenautodub; print(wrenautodub.__version__)\"`,
+        hoặc dán mã commit nếu bạn chạy từ git.
+        Run the command above, or paste the commit hash if running from git.
+      placeholder: "1.0.0 — hoặc / or: bf1c373"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: "Windows và Python / Windows and Python"
+      description: "App chỉ chạy Windows. / The app is Windows only."
+      placeholder: "Windows 10 Pro 22H2, Python 3.14.6"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: "Còn gì khác / Anything else"
+      description: |
+        Log dài, ảnh chụp màn hình, chuỗi filter ffmpeg đã in ra... Kéo thả
+        file vào ô này là tải lên được.
+
+        Long logs, screenshots, the printed ffmpeg filter chain... Drag and
+        drop files here to attach them.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: "Xác nhận / Confirmation"
+      options:
+        - label: "Tôi đã chạy `python wren.py doctor` và dán output ở trên. / I ran `python wren.py doctor` and pasted the output above."
+          required: true
+        - label: "Tôi đã tìm trong các issue đang mở xem có ai báo trùng chưa. / I searched existing open issues for a duplicate."
+          required: true

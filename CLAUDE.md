@@ -59,6 +59,31 @@ cắt vẫn còn và mốc sai hết.
   `timing.atempo_chain`.
 - **DLL CUDA**: Windows không tự tìm `cublas64_12.dll` trong package pip
   `nvidia-*`. Phải gọi `cudafix.enable_cuda_dlls()` TRƯỚC khi import ctranslate2.
+- **File tải từ HLS hay thiếu segment.** Mốc thời gian của gói tin vẫn liền
+  mạch nhưng bên trong hụt cả phút âm thanh. ffmpeg dồn hai mép lỗ lại, thoát
+  mã 0, không cảnh báo gì — mọi mốc thoại sau lỗ bị đẩy sớm đúng bằng độ dài
+  lỗ. **Mọi chỗ decode `[0:a]` phải có `aresample=async=1`** (`asr.py`,
+  `mux.py`). Đã dính thật: phim 15:21 ra track thuyết minh 12:03.
+- **`sidechaincompress` kết thúc theo nhánh NGẮN hơn.** Nhánh điều khiển phải
+  `apad`, không thì thuyết minh ngắn hơn phim sẽ cắt cụt cả bản trộn.
+- **Không có `dub.wav` thì tiếng gốc vẫn phải cắt theo hình.** Map thẳng
+  `0:a:0` là hình cắt còn tiếng nguyên bản, lệch ngay từ nhát cắt đầu tiên.
+- **Chỉ số input của ảnh logo phụ thuộc có `dub.wav` hay không** (2 nếu có, 1
+  nếu không). Đóng cứng bằng 2 là ffmpeg báo `Invalid file index 2`.
+- **Gán `self.x = ...` cho list dùng chung là cắt đứt tham chiếu.** `timeline`
+  và `Project` chia nhau cùng một list; phải sửa tại chỗ `self.x[:] = ...`,
+  không thì màn hình một đằng, lúc xuất một nẻo.
+- **Undo phải trả về ĐỦ mọi trường.** Thiếu `clips`/`dub_clips`/`ripple` thì
+  undo cho ra trạng thái lai, rồi `save_project` ghi nguyên cái lai đó xuống đĩa.
+- **Mã ngôn ngữ của Whisper khác Google Translate**: `zh`→`zh-CN`, `he`→`iw`,
+  `jv`→`jw`. Dùng `translate.map_lang`.
+- **Heredoc bash nuot ky tu escape.** Da dinh 4 lan trong mot phien:
+  backslash-n bien thanh xuong dong that, backslash-s va backslash-d
+  trong regex mat backslash. Viet script va khong dung escape nao, hoac
+  dung cong cu ghi file.
+- **Thời lượng đúng KHÔNG chứng minh nội dung đúng.** Bản cắt từng ra đủ
+  14.000s mà tiếng vẫn phát đoạn đã bị cắt khỏi hình. Kiểm bằng nội dung: màu
+  khung hình, tần số sóng âm, `volumedetect` — đừng bao giờ chỉ so `ffprobe`.
 
 ## Phần cứng đã đo
 
