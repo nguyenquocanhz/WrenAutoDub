@@ -6,6 +6,9 @@
 
 !.gitignore
 !CLAUDE.md
+!README.md
+!docs/
+!docs/**
 !wren.py
 !WrenAutoDub.bat
 
