@@ -112,3 +112,11 @@ Chưa có: fade, keyframe âm lượng, transition giữa clip.
 Đã kiểm với mkv h264/hevc kèm aac, ac3, e-ac3, dts, flac — 8/8 phát trực tiếp
 được. Chưa chạy thử trên phim dài hơn vài phút, nên số đo tốc độ suy ra từ clip
 ngắn.
+
+## Giấy phép
+
+[GNU AGPL-3.0](LICENSE).
+
+Bạn được tự do dùng, sửa và phân phối lại. Điều kiện: bản sửa đổi cũng phải mở
+nguồn theo cùng giấy phép — kể cả khi bạn chỉ cho người khác dùng qua mạng chứ
+không phát hành file. Đó là điểm khác giữa AGPL và GPL thường.
