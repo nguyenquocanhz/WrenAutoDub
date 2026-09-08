@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+"""Stage 1: nhận dạng tiếng Nhật bằng faster-whisper (tối ưu 4GB VRAM)."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import List
+
+from . import models
+from .cudafix import enable_cuda_dlls
+from .srtutil import Cue, write_srt
+
+# Thứ tự thử: nhanh nhất -> an toàn nhất. Rơi xuống CPU nếu CUDA hỏng.
+FALLBACKS = [
+    ("cuda", "int8_float16"),
+    ("cuda", "int8"),
+    ("cuda", "float16"),
+    ("cpu", "int8"),
+]
+
+# Gợi ý ngữ cảnh giúp Whisper chấm câu tiếng Nhật tử tế hơn.
+DEFAULT_PROMPT = "以下は日本語の映画の台詞です。句読点を付けて書き起こしてください。"
+
+SENT_END = "。．.!?！？…"
+SOFT_BREAK = "、,，;；:："
+
+
+def ffprobe_duration(path: str | Path) -> float:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nk=1:nw=1", str(path)],
+            capture_output=True, text=True, check=True,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return 0.0
+
+
+def extract_audio(video: str | Path, out_wav: str | Path, force: bool = False) -> Path:
+    """Tách audio 16kHz mono. Nhanh và ổn định hơn để faster-whisper tự decode mkv/mp4."""
+    out_wav = Path(out_wav)
+    if out_wav.exists() and not force:
+        print(f"  [skip] đã có {out_wav.name}")
+        return out_wav
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("Không tìm thấy ffmpeg trong PATH")
+    print(f"  [ffmpeg] tách audio 16kHz mono -> {out_wav.name}")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(video),
+         "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(out_wav)],
+        check=True,
+    )
+    return out_wav
+
+
+def _smoke_test(model) -> None:
+    """Chạy thử 1 giây im lặng để ép nạp cuBLAS/cuDNN ngay tại đây.
+
+    Không có bước này, lỗi thiếu DLL chỉ nổ ra giữa chừng khi đã chạy được vài phút.
+    """
+    import numpy as np
+
+    segs, _ = model.transcribe(np.zeros(16000, dtype=np.float32),
+                               language="ja", vad_filter=False, beam_size=1)
+    for _ in segs:
+        break
+
+
+def load_model(model_size: str, device: str = "auto", compute_type: str = "auto"):
+    enable_cuda_dlls(verbose=True)
+    from faster_whisper import WhisperModel
+
+    # Tải model về trước; sau bước này chỉ đọc từ đĩa nên không sợ rớt mạng giữa chừng.
+    model_path = models.ensure_whisper(model_size)
+
+    if device != "auto" and compute_type != "auto":
+        combos = [(device, compute_type)]
+    elif device != "auto":
+        combos = [(d, c) for d, c in FALLBACKS if d == device]
+    else:
+        combos = FALLBACKS
+
+    last = None
+    for dev, ct in combos:
+        try:
+            print(f"  [model] thử {model_size} | {dev} | {ct} ...")
+            m = WhisperModel(model_path, device=dev, compute_type=ct,
+                             local_files_only=True)
+            _smoke_test(m)
+            print(f"  [model] OK: {dev}/{ct}")
+            return m
+        except Exception as e:  # cuDNN thiếu, hết VRAM, compute_type không hỗ trợ...
+            print(f"  [model] hỏng ({type(e).__name__}: {str(e)[:120]}) -> thử tiếp")
+            last = e
+    raise RuntimeError(f"Không load được model. Lỗi cuối: {last}")
+
+
+def _split_by_words(words, max_dur: float, max_chars: int) -> List[Cue]:
+    """Cắt 1 segment dài thành từng câu, dùng mốc thời gian của từng từ.
+
+    Whisper + VAD hay trả về một khối 15-30 giây; thuyết minh cần câu ngắn
+    thì giọng đọc mới bám được hình.
+    """
+    cues: List[Cue] = []
+    buf = []
+
+    def flush(ws):
+        if not ws:
+            return
+        text = "".join(w.word for w in ws).strip()
+        if text:
+            cues.append(Cue(ws[0].start, ws[-1].end, text))
+
+    for w in words:
+        buf.append(w)
+        text = "".join(x.word for x in buf).strip()
+        if not text:
+            continue
+        dur = buf[-1].end - buf[0].start
+
+        if text[-1] in SENT_END:
+            flush(buf)
+            buf = []
+            continue
+
+        if dur >= max_dur or len(text) >= max_chars:
+            # lùi về dấu phẩy gần nhất để câu không bị cắt giữa ý
+            cut = len(buf)
+            for i in range(len(buf) - 1, max(0, len(buf) // 3), -1):
+                if buf[i].word.strip()[-1:] in SOFT_BREAK:
+                    cut = i + 1
+                    break
+            flush(buf[:cut])
+            buf = buf[cut:]
+
+    flush(buf)
+    return cues
+
+
+def _split_by_text(seg, max_chars: int) -> List[Cue]:
+    """Không có word timestamps thì chia thời lượng theo tỉ lệ số ký tự."""
+    import re
+
+    parts = [p for p in re.split(rf"(?<=[{SENT_END}])", seg.text.strip()) if p.strip()]
+    if len(parts) <= 1:
+        return [Cue(seg.start, seg.end, seg.text.strip())]
+
+    total = sum(len(p) for p in parts)
+    cues: List[Cue] = []
+    t = seg.start
+    span = seg.end - seg.start
+    for p in parts:
+        d = span * len(p) / total
+        cues.append(Cue(t, min(t + d, seg.end), p.strip()))
+        t += d
+    return cues
+
+
+def transcribe(
+    audio: str | Path,
+    out_srt: str | Path,
+    model_size: str = "large-v3",
+    language: str = "ja",
+    device: str = "auto",
+    compute_type: str = "auto",
+    beam_size: int = 5,
+    initial_prompt: str | None = DEFAULT_PROMPT,
+    max_cue_dur: float = 8.0,
+    max_cue_chars: int = 60,
+    force: bool = False,
+) -> List[Cue]:
+    out_srt = Path(out_srt)
+    if out_srt.exists() and not force:
+        from .srtutil import read_srt
+        cues = read_srt(out_srt)
+        print(f"  [skip] đã có {out_srt.name} ({len(cues)} câu)")
+        return cues
+
+    model = load_model(model_size, device, compute_type)
+    total = ffprobe_duration(audio)
+
+    segments, info = model.transcribe(
+        str(audio),
+        language=language,
+        beam_size=beam_size,
+        # KHÔNG khoá temperature=0: cần fallback để thoát vòng lặp lải nhải
+        temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        condition_on_previous_text=False,   # bắt buộc với audio nhiều tạp âm
+        compression_ratio_threshold=2.4,    # chặn câu lặp vô hạn
+        log_prob_threshold=-1.0,
+        no_speech_threshold=0.6,
+        initial_prompt=initial_prompt,
+        word_timestamps=True,               # cần để cắt câu cho khớp thuyết minh
+        vad_filter=True,
+        vad_parameters=dict(
+            min_silence_duration_ms=500,
+            speech_pad_ms=200,
+            threshold=0.5,
+        ),
+    )
+
+    print(f"  [asr] ngôn ngữ={info.language} (p={info.language_probability:.2f}), "
+          f"thời lượng={info.duration:.0f}s")
+
+    cues: List[Cue] = []
+    t0 = time.time()
+    last_print = 0.0
+    for seg in segments:  # generator -> việc nhận dạng chạy ở vòng lặp này
+        if not seg.text.strip():
+            continue
+        words = getattr(seg, "words", None)
+        if words:
+            cues.extend(_split_by_words(words, max_cue_dur, max_cue_chars))
+        else:
+            cues.extend(_split_by_text(seg, max_cue_chars))
+
+        if total and seg.end - last_print > 30:
+            last_print = seg.end
+            pct = min(100.0, seg.end / total * 100)
+            el = time.time() - t0
+            eta = el / max(pct, 0.1) * (100 - pct)
+            sys.stdout.write(
+                f"\r  [asr] {pct:5.1f}% | {len(cues)} câu | trôi {el/60:.1f}p | còn ~{eta/60:.1f}p   "
+            )
+            sys.stdout.flush()
+    print()
+
+    write_srt(out_srt, cues)
+    print(f"  [asr] xong: {out_srt} ({len(cues)} câu, {(time.time()-t0)/60:.1f} phút)")
+    return cues

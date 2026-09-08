@@ -1,0 +1,20 @@
+# Danh sách TRẮNG: chặn tất cả, rồi chỉ mở đúng file của WrenAutoDub.
+# Thư mục này còn chứa dự án khác (model GGUF, notebook huấn luyện, dataset)
+# — không thứ nào trong đó được lọt vào repo.
+
+*
+
+!.gitignore
+!CLAUDE.md
+!wren.py
+!WrenAutoDub.bat
+
+!wrenautodub/
+!wrenautodub/**
+!tests/
+!tests/**
+
+# Rác sinh ra lúc chạy
+wrenautodub/__pycache__/
+tests/__pycache__/
+**/*.pyc
