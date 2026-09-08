@@ -60,6 +60,7 @@ def _build_cmd(
     video: Path, dub_wav: Path, out_video: Path, srt: Optional[Path],
     duck: str, orig_vol: float, dub_vol: float, keep_orig_audio: bool,
     softsub: bool, hardsub: bool, hwaccel_name: str, encoder: str,
+    src_lang: str = "",
 ) -> List[str]:
     audio_graph = (DUCK_SIDECHAIN if duck == "sidechain" else DUCK_FLAT
                    ).format(orig=orig_vol, dub=dub_vol)
@@ -81,10 +82,15 @@ def _build_cmd(
 
     cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k", "-ac", "2"]
 
+    # Khong gan ma ngon ngu thi trinh phat hien "Undetermined" cho ca hai
+    # track, nguoi xem khong biet cai nao la thuyet minh.
+    cmd += ["-metadata:s:a:0", "language=vie",
+            "-metadata:s:a:0", "title=Thuyet minh tieng Viet"]
     if keep_orig_audio:
         cmd += ["-map", "0:a:0", "-c:a:1", "copy",
-                "-metadata:s:a:0", "title=Thuyet minh tieng Viet",
                 "-metadata:s:a:1", "title=Goc"]
+        if src_lang:
+            cmd += ["-metadata:s:a:1", "language=" + _iso3(src_lang)]
 
     if softsub and srt:
         idx = 2
@@ -96,6 +102,17 @@ def _build_cmd(
 
     cmd.append(str(out_video))
     return cmd
+
+
+# Container mp4/mkv dung ma ISO 639-2 ba ky tu, Whisper tra ve hai ky tu.
+_ISO3 = {"zh": "chi", "ja": "jpn", "ko": "kor", "en": "eng", "vi": "vie",
+         "th": "tha", "fr": "fra", "de": "deu", "es": "spa", "ru": "rus",
+         "it": "ita", "pt": "por", "id": "ind", "hi": "hin", "ar": "ara"}
+
+
+def _iso3(code: str) -> str:
+    c = (code or "").strip().lower()[:3]
+    return _ISO3.get(c[:2], c if len(c) == 3 else "und")
 
 
 def mux(
@@ -111,6 +128,7 @@ def mux(
     hwaccel_name: str = "auto",
     vcodec: str = "copy",
     force: bool = False,
+    src_lang: str = "",
 ) -> Path:
     out_video = Path(out_video)
     if out_video.exists() and not force:
@@ -145,7 +163,8 @@ def mux(
         print(f"  [mux] {' | '.join(bits)}")
 
     cmd = _build_cmd(video, dub_wav, out_video, srt_path, duck, orig_vol, dub_vol,
-                     keep_orig_audio, softsub, hardsub, hw, encoder)
+                     keep_orig_audio, softsub, hardsub, hw, encoder,
+                     src_lang)
     r = subprocess.run(cmd, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
 
@@ -157,7 +176,8 @@ def mux(
         encoder = hwaccel.best_encoder("auto")
         print(f"  [mux] thử lại với {encoder}")
         cmd = _build_cmd(video, dub_wav, out_video, srt_path, duck, orig_vol, dub_vol,
-                         keep_orig_audio, softsub, hardsub, hw, encoder)
+                         keep_orig_audio, softsub, hardsub, hw, encoder,
+                         src_lang)
         r = subprocess.run(cmd, capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
 

@@ -202,7 +202,7 @@ def _run_pipeline(args) -> int:
             duck=args.duck, orig_vol=args.orig_vol, dub_vol=args.dub_vol,
             keep_orig_audio=not args.no_orig_track,
             hardsub=args.hardsub, hwaccel_name=args.hwaccel, vcodec=args.venc,
-            force=args.force,
+            force=args.force, src_lang=args.lang,
         )
 
     print(f"\nHoàn tất sau {(time.time() - t0) / 60:.1f} phút.")
