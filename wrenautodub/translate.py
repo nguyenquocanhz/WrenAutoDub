@@ -65,6 +65,23 @@ def _chunks(texts: List[str]) -> List[List[int]]:
     return out
 
 
+def _chua_dich(ra: str, goc: str, tgt: str) -> bool:
+    """Câu này vẫn chưa được dịch thật sự?
+
+    Hai dấu hiệu: y hệt câu gốc, hoặc còn chữ Hán trong khi đích không phải
+    tiếng dùng chữ Hán.
+    """
+    if not ra or not ra.strip():
+        return True
+    if ra.strip() == goc.strip():
+        return True
+    if not tgt.lower().startswith(("zh", "ja", "ko")):
+        han = sum(1 for c in ra if "一" <= c <= "鿿")
+        if han and han / max(1, len(ra.strip())) > 0.3:
+            return True
+    return False
+
+
 def _translate_raw(tr, text: str, retries: int = 4) -> str:
     for attempt in range(retries):
         try:
@@ -145,7 +162,37 @@ def translate_srt(
     print()
 
     _save_cache(cache_path, cache)
-    vi = [Cue(c.start, c.end, cache.get(c.text) or c.text) for c in cues]
+
+    # Lượt vá. Endpoint Google chập chờn nên vẫn còn câu chưa dịch được, mà
+    # bản cũ để nguyên câu gốc -> TTS tiếng Việt đọc chữ Hán ra tạp âm. Đo
+    # trên phim thật: 13/186 câu (7%) còn nguyên chữ Hán.
+    con = [c for c in cues if _chua_dich(cache.get(c.text), c.text, tgt)]
+    if con:
+        print(f"  [dịch] còn {len(con)} câu chưa dịch được, thử lại chậm hơn")
+        for k, c in enumerate(con, 1):
+            one = _translate_raw(tr, c.text, retries=5)
+            if one and not _chua_dich(one, c.text, tgt):
+                cache[c.text] = one
+            time.sleep(max(delay, 1.2))
+            if k % 5 == 0:
+                print(f"\r    [vá] {k}/{len(con)}   ", end="", flush=True)
+        print()
+        _save_cache(cache_path, cache)
+
+    vi, bo = [], []
+    for c in cues:
+        t = cache.get(c.text) or c.text
+        if _chua_dich(t, c.text, tgt):
+            bo.append(c)
+            continue
+        vi.append(Cue(c.start, c.end, t))
+    if bo:
+        # Thà thiếu câu còn hơn để TTS đọc chữ Hán thành tiếng vô nghĩa.
+        print(f"  [dịch] BỎ {len(bo)} câu không dịch được sau khi vá:")
+        for c in bo[:5]:
+            print(f"          {c.start:7.1f}s  {c.text[:40]}")
+        if len(bo) > 5:
+            print(f"          ... và {len(bo) - 5} câu nữa")
     write_srt(out_srt, vi)
     print(f"  [dịch] xong: {out_srt}")
     return vi

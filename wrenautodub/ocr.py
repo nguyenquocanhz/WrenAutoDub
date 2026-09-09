@@ -260,17 +260,23 @@ def _chon_dong(dong: List[str], lang: str) -> str:
     Phim hardsub hay có hai dòng: bản dịch ở trên, chữ gốc ở dưới. Chọn theo
     tỉ lệ chữ Hán chứ không theo thứ tự, vì thứ tự mỗi bản phát hành một khác.
     """
-    if len(dong) == 1:
-        return dong[0]
-
     def han(s: str) -> float:
         if not s:
             return 0.0
         return sum(1 for c in s if "一" <= c <= "鿿") / len(s)
 
     if lang.startswith("zh") or lang in ("ja", "ko", "yue"):
+        # Kiểm cả khi chỉ có MỘT dòng: credit cuối phim hay ra đúng một mảnh
+        # rác kiểu "451" hoặc "AZTEC", thoát sớm là lọt.
         tot = max(dong, key=han)
-        return tot if han(tot) > 0.3 else dong[-1]
+        # Không dòng nào có chữ Hán mà phim lại là tiếng Hán -> đây không phải
+        # lời thoại. Gần như luôn là phần credit cuối phim: đo trên phim thật,
+        # một khung ở giây 902 trả về 7 dòng vụn kiểu "oodacgap", "d 38.039.14",
+        # "TIN DUNG". Lọc theo ĐIỂM TIN CẬY không ăn thua — rác đó đạt tới
+        # 0.79, cao hơn nhiều câu thoại thật.
+        return tot if han(tot) > 0.15 else ""
+    if len(dong) == 1:
+        return dong[0]
     return min(dong, key=han)
 
 
