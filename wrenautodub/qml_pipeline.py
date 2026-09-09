@@ -42,6 +42,15 @@ RE_FIT = re.compile(r"\[tts\]\s+ép timing\s+(\d+)/(\d+)")
 RE_RESULT = re.compile(r"Kết quả:\s*(.+)")
 RE_XONG = re.compile(r"xong:\s*(.+?)\s*\((\d+)\s*câu")
 RE_EP = re.compile(r"\[tts\]\s+(\d+)\s+câu dài quá khung")
+RE_ENGINE = re.compile(r"\[tts\]\s+engine=(\S+)\s*\|\s*giọng\s+([^|]+)")
+
+# Thư viện vieneu in cảnh báo này mỗi lần nạp. Nó chỉ nói không đóng được
+# thuỷ vân vào audio — không ảnh hưởng gì tới giọng đọc, mà nguyên văn thì
+# dài và trông như lỗi nặng. Đổi thành một dòng nói rõ là vô hại.
+ON_AO = (
+    ("Watermarker init failed",
+     "[tts] thư viện không đóng thuỷ vân vào audio — không ảnh hưởng giọng đọc"),
+)
 
 
 def py_env() -> QProcessEnvironment:
@@ -104,6 +113,14 @@ class PipelineBridge(QObject):
         self._so_cau = 0
         self._ep_qua = 0
         self._xong: List[str] = ["", "", "", ""]    # tóm tắt từng bước đã xong
+        self._may = ""                      # engine + giọng đang dùng
+        self._cau_i = 0                     # câu đang đọc
+        self._cau_n = 0
+        self._vram = ""
+        self._o_dia = ""
+        self._batdau = 0.0
+        self._vi: List = []                 # nạp lười từ vi.srt
+        self._goc: List = []
 
         self.proc = Runner(self)
         self.proc.line.connect(self._dong)
@@ -116,6 +133,12 @@ class PipelineBridge(QObject):
         self._hen.setInterval(120)
         self._hen.setSingleShot(True)
         self._hen.timeout.connect(self.changed)
+
+        # Đo tài nguyên rời nhịp với luồng log: gọi nvidia-smi mỗi dòng tiến
+        # độ thì tốn hơn cả việc nó đo.
+        self._do = QTimer(self)
+        self._do.setInterval(3000)
+        self._do.timeout.connect(self._do_may)
 
     def _bao(self) -> None:
         if not self._hen.isActive():
@@ -177,6 +200,100 @@ class PipelineBridge(QObject):
     def logLines(self):
         return self._log[-200:]
 
+    @pyqtProperty(str, notify=changed)
+    def engineInfo(self):
+        return self._may
+
+    @pyqtProperty(str, notify=changed)
+    def vram(self):
+        return self._vram
+
+    @pyqtProperty(str, notify=changed)
+    def workSize(self):
+        return self._o_dia
+
+    @pyqtProperty(int, notify=changed)
+    def cueIndex(self):
+        return self._cau_i
+
+    @pyqtProperty(int, notify=changed)
+    def cueTotal(self):
+        return self._cau_n
+
+    @pyqtProperty(str, notify=changed)
+    def cueVi(self):
+        """Lời thoại tiếng Việt của câu đang đọc.
+
+        Đọc thẳng từ vi.srt thay vì bắt wren.py in ra: file đã nằm sẵn trên
+        đĩa, và đỡ phải sửa tầng pipeline chỉ để giao diện có cái mà hiện.
+        """
+        c = self._lay(self._vi, "vi.srt", self._cau_i)
+        return c.text if c else ""
+
+    @pyqtProperty(str, notify=changed)
+    def cueGoc(self):
+        c = self._lay(self._goc, "ja.srt", self._cau_i)
+        return c.text if c else ""
+
+    @pyqtProperty(str, notify=changed)
+    def cueTime(self):
+        c = self._lay(self._vi, "vi.srt", self._cau_i)
+        if not c:
+            return ""
+        return f"{int(c.start // 60)}:{c.start % 60:05.2f}"
+
+    @pyqtProperty(str, notify=changed)
+    def elapsed(self):
+        if not self._batdau:
+            return ""
+        import time as _t
+        d = int(_t.time() - self._batdau)
+        return f"{d // 60}:{d % 60:02d}"
+
+    def _thu_muc(self) -> Optional[Path]:
+        if not self._video:
+            return None
+        v = Path(self._video)
+        return v.parent / f"{v.stem}_work"
+
+    def _lay(self, kho: List, ten: str, i: int):
+        """Câu thứ i trong file srt, nạp lười và nhớ lại."""
+        if not kho:
+            d = self._thu_muc()
+            f = (d / ten) if d else None
+            if f and f.exists():
+                try:
+                    from .srtutil import read_srt
+                    kho.extend(read_srt(f))
+                except Exception:
+                    return None
+        k = i - 1
+        return kho[k] if 0 <= k < len(kho) else None
+
+    def _do_may(self) -> None:
+        """VRAM và dung lượng thư mục làm việc."""
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5)
+            t = (r.stdout or "").strip().splitlines()
+            if t:
+                a, b = [x.strip() for x in t[0].split(",")[:2]]
+                self._vram = f"{a} / {b} MiB"
+        except (OSError, ValueError, subprocess.SubprocessError):
+            self._vram = ""
+        d = self._thu_muc()
+        if d and d.exists():
+            try:
+                n = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+                self._o_dia = (f"{n / 1024 / 1024 / 1024:.1f} GB" if n > 1 << 30
+                               else f"{n / 1024 / 1024:.0f} MB")
+            except OSError:
+                self._o_dia = ""
+        self._bao()
+
     # --------------------------------------------------------------- điều khiển
     @pyqtSlot(str)
     @pyqtSlot(str, str)
@@ -193,7 +310,16 @@ class PipelineBridge(QObject):
         self._ep_qua = 0
         self._xong = ["", "", "", ""]
         self._log = []
+        self._may = ""
+        self._cau_i = 0
+        self._cau_n = 0
+        self._vi = []
+        self._goc = []
+        import time as _t
+        self._batdau = _t.time()
         self._dang_chay = True
+        self._do.start()
+        self._do_may()
         args = ["run", video]
         if lang:
             args += ["--lang", lang]
@@ -207,6 +333,10 @@ class PipelineBridge(QObject):
 
     # ------------------------------------------------------------------ đọc
     def _dong(self, s: str) -> None:
+        for dau, thay in ON_AO:
+            if dau in s:
+                s = thay
+                break
         if s.strip():
             self._log.append(s)
             self.logAdded.emit(s)
@@ -226,6 +356,13 @@ class PipelineBridge(QObject):
             self._stage = int(m.group(1))
             self._frac = 0.0
             return
+        for rx in (RE_SYNTH, RE_FIT):
+            m = rx.search(s)
+            if m:
+                self._cau_i = int(m.group(1))
+                self._cau_n = int(m.group(2))
+                break
+
         for rx, tinh in (
                 (RE_ASR, lambda m: float(m.group(1)) / 100),
                 (RE_OCR, lambda m: int(m.group(1)) / max(1, int(m.group(2)))),
@@ -238,6 +375,10 @@ class PipelineBridge(QObject):
             if m:
                 self._frac = max(0.0, min(1.0, tinh(m)))
                 return
+        m = RE_ENGINE.search(s)
+        if m:
+            self._may = f"{m.group(1)} · giọng {m.group(2).strip()}"
+            return
         m = RE_EP.search(s)
         if m:
             self._ep_qua = int(m.group(1))
@@ -254,6 +395,8 @@ class PipelineBridge(QObject):
 
     def _ket_thuc(self, ma: int, _tt) -> None:
         self._dang_chay = False
+        self._do.stop()
+        self._do_may()
         if ma == 0:
             self._stage = 4
             self._frac = 1.0

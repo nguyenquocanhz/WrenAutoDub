@@ -26,6 +26,15 @@ Item {
     readonly property int      pEpQua: pipe ? pipe.overFitted : 0
     readonly property var      pXong: pipe ? pipe.stageDone : ["", "", "", ""]
     readonly property var      pNhatKy: pipe ? pipe.logLines : []
+    readonly property string   pMay: pipe ? pipe.engineInfo : ""
+    readonly property string   pVram: pipe ? pipe.vram : ""
+    readonly property string   pODia: pipe ? pipe.workSize : ""
+    readonly property string   pTroi: pipe ? pipe.elapsed : ""
+    readonly property int      pCau: pipe ? pipe.cueIndex : 0
+    readonly property int      pCauTong: pipe ? pipe.cueTotal : 0
+    readonly property string   pCauVi: pipe ? pipe.cueVi : ""
+    readonly property string   pCauGoc: pipe ? pipe.cueGoc : ""
+    readonly property string   pCauMoc: pipe ? pipe.cueTime : ""
 
     readonly property var tenBuoc: [
         "Lấy lời thoại gốc", "Dịch sang tiếng Việt",
@@ -179,6 +188,98 @@ Item {
                                     Behavior on width { NumberAnimation { duration: 240 } }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------- câu đang đọc
+        // Chờ mấy phút mà màn hình không có gì chuyển động thì rất dài. Cho
+        // thấy đúng câu đang được đọc, song ngữ, để biết nó đang tới đâu
+        // trong phim và bản dịch có ra hồn không.
+        Rectangle {
+            visible: man.pCauVi !== "" && man.pChay
+            Layout.fillWidth: true
+            Layout.preferredHeight: 74
+            radius: t.rThe
+            color: t.nen2
+            border.width: 1
+            border.color: t.nen5
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 3
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Text {
+                        text: "đang đọc"
+                        color: t.nhan
+                        font.pixelSize: t.fNho
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        text: "câu " + man.pCau + " / " + man.pCauTong
+                              + (man.pCauMoc !== "" ? "  ·  " + man.pCauMoc : "")
+                        color: t.chu3
+                        font.pixelSize: t.fNho
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+                Text {
+                    text: man.pCauGoc
+                    color: t.chu3
+                    font.pixelSize: t.fNho
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Text {
+                    text: man.pCauVi
+                    color: t.chu0
+                    font.pixelSize: t.fVua
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+            }
+        }
+
+        // ---------------------------------------------------- dải tài nguyên
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            visible: man.pChay || man.pTroi !== ""
+
+            Repeater {
+                model: [
+                    ["đã chạy",   man.pTroi],
+                    ["VRAM",      man.pVram],
+                    ["thư mục",   man.pODia],
+                    ["giọng đọc", man.pMay]
+                ]
+                delegate: Rectangle {
+                    required property var modelData
+                    visible: modelData[1] !== ""
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 40
+                    radius: t.rLon
+                    color: t.nen2
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: 0
+                        Text {
+                            text: modelData[0]
+                            color: t.chu3
+                            font.pixelSize: t.fNho
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                        Text {
+                            text: modelData[1]
+                            color: t.chu1
+                            font.pixelSize: t.fThuong
+                            Layout.alignment: Qt.AlignHCenter
                         }
                     }
                 }
