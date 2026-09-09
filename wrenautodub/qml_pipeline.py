@@ -38,6 +38,8 @@ RE_ASR = re.compile(r"\[asr\]\s+([\d.]+)%")
 RE_OCR = re.compile(r"\[ocr\]\s+(\d+)/(\d+)\s+đoạn")
 RE_TRANS = re.compile(r"\[dịch\]\s+(\d+)/(\d+)\s+câu")
 RE_SYNTH = re.compile(r"\[tts\]\s+tổng hợp\s+(\d+)/(\d+)")
+RE_TOCDO = re.compile(r"([\d.]+)\s*s/câu")
+RE_PIECE = re.compile(r"piece=(.+?)\s*$")
 RE_FIT = re.compile(r"\[tts\]\s+ép timing\s+(\d+)/(\d+)")
 RE_RESULT = re.compile(r"Kết quả:\s*(.+)")
 RE_XONG = re.compile(r"xong:\s*(.+?)\s*\((\d+)\s*câu")
@@ -119,6 +121,8 @@ class PipelineBridge(QObject):
         self._vram = ""
         self._o_dia = ""
         self._batdau = 0.0
+        self._toc = 0.0                     # giây mỗi câu, đo thật
+        self._manh = ""                     # file wav của câu vừa đọc xong
         self._vi: List = []                 # nạp lười từ vi.srt
         self._goc: List = []
 
@@ -243,6 +247,37 @@ class PipelineBridge(QObject):
         return f"{int(c.start // 60)}:{c.start % 60:05.2f}"
 
     @pyqtProperty(str, notify=changed)
+    def speed(self):
+        """Tốc độ ĐO THẬT, không suy từ phần trăm."""
+        return f"{self._toc:.2f} giây/câu" if self._toc > 0 else ""
+
+    @pyqtProperty(str, notify=changed)
+    def remain(self):
+        """Còn bao lâu, tính từ tốc độ thật của bước đang chạy."""
+        if self._toc <= 0 or self._cau_n <= 0 or self._cau_i >= self._cau_n:
+            return ""
+        d = int((self._cau_n - self._cau_i) * self._toc)
+        return f"{d // 60}:{d % 60:02d}"
+
+    @pyqtProperty(bool, notify=changed)
+    def canPlay(self):
+        return bool(self._manh) and Path(self._manh).exists()
+
+    @pyqtSlot()
+    def playCue(self):
+        """Nghe thử câu vừa đọc xong. Mảnh audio đã nằm sẵn trong pieces/."""
+        if not self.canPlay:
+            return
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+        if not hasattr(self, "_pl"):
+            self._pl = QMediaPlayer(self)
+            self._ao = QAudioOutput(self)
+            self._pl.setAudioOutput(self._ao)
+        self._pl.setSource(QUrl.fromLocalFile(str(Path(self._manh).resolve())))
+        self._pl.play()
+
+    @pyqtProperty(str, notify=changed)
     def elapsed(self):
         if not self._batdau:
             return ""
@@ -313,6 +348,8 @@ class PipelineBridge(QObject):
         self._may = ""
         self._cau_i = 0
         self._cau_n = 0
+        self._toc = 0.0
+        self._manh = ""
         self._vi = []
         self._goc = []
         import time as _t
@@ -344,7 +381,9 @@ class PipelineBridge(QObject):
         self._bao()
 
     def _nhip(self, s: str) -> None:
-        self._chi_tiet = s.strip()
+        # Cắt phần piece=<đường dẫn> khỏi dòng hiện ra: nó dài, chiếm hết dòng,
+        # mà thông tin đó đã thành nút "nghe thử" rồi.
+        self._chi_tiet = RE_PIECE.sub("", s).rstrip(" |").strip()
         self._doc(s)
         self._bao()
 
@@ -356,6 +395,16 @@ class PipelineBridge(QObject):
             self._stage = int(m.group(1))
             self._frac = 0.0
             return
+        m = RE_TOCDO.search(s)
+        if m:
+            try:
+                self._toc = float(m.group(1))
+            except ValueError:
+                pass
+        m = RE_PIECE.search(s)
+        if m:
+            self._manh = m.group(1).strip()
+
         for rx in (RE_SYNTH, RE_FIT):
             m = rx.search(s)
             if m:

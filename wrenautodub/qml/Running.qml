@@ -35,6 +35,9 @@ Item {
     readonly property string   pCauVi: pipe ? pipe.cueVi : ""
     readonly property string   pCauGoc: pipe ? pipe.cueGoc : ""
     readonly property string   pCauMoc: pipe ? pipe.cueTime : ""
+    readonly property string   pTocDo: pipe ? pipe.speed : ""
+    readonly property string   pConLai: pipe ? pipe.remain : ""
+    readonly property bool     pNgheDuoc: pipe ? pipe.canPlay : false
 
     readonly property var tenBuoc: [
         "Lấy lời thoại gốc", "Dịch sang tiếng Việt",
@@ -67,8 +70,9 @@ Item {
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: man.pChiTiet !== "" ? man.pChiTiet
-                          : (man.pChay ? "đang chạy…" : "")
+                    text: (man.pConLai !== "" ? "còn khoảng " + man.pConLai + "  ·  " : "")
+                          + (man.pChiTiet !== "" ? man.pChiTiet
+                             : (man.pChay ? "đang chạy…" : ""))
                     color: t.chu2
                     font.pixelSize: t.fThuong
                     elide: Text.ElideRight
@@ -228,6 +232,16 @@ Item {
                         font.pixelSize: t.fNho
                     }
                     Item { Layout.fillWidth: true }
+                    // Mảnh audio đã nằm sẵn trong pieces/ — nghe thử ngay câu
+                    // vừa đọc xong, không phải chờ hết cả phim rồi mới biết
+                    // giọng có ra hồn không.
+                    Button {
+                        visible: man.pNgheDuoc
+                        text: "▶ nghe thử"
+                        font.pixelSize: t.fNho
+                        implicitHeight: 24
+                        onClicked: pipe.playCue()
+                    }
                 }
                 Text {
                     text: man.pCauGoc
@@ -255,6 +269,7 @@ Item {
             Repeater {
                 model: [
                     ["đã chạy",   man.pTroi],
+                    ["tốc độ",    man.pTocDo],
                     ["VRAM",      man.pVram],
                     ["thư mục",   man.pODia],
                     ["giọng đọc", man.pMay]

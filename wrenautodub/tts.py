@@ -13,6 +13,7 @@ import random
 import re
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -83,12 +84,16 @@ async def _edge_all(jobs: List[Tuple[int, str, Path]], voice: str, rate: str,
     done = [0]
     failed: List[int] = []
 
+    _t0 = time.time()
+
     async def one(idx: int, text: str, path: Path):
         if not await _synth_edge(text, voice, rate, path, sem):
             failed.append(idx)
         done[0] += 1
         if done[0] % 10 == 0 or done[0] == len(jobs):
-            sys.stdout.write(f"\r  [tts] tổng hợp {done[0]}/{len(jobs)}   ")
+            gpc = (time.time() - _t0) / max(1, done[0])
+            sys.stdout.write(f"\r  [tts] tổng hợp {done[0]}/{len(jobs)} | "
+                             f"{gpc:.2f} s/câu | piece={path}   ")
             sys.stdout.flush()
 
     await asyncio.gather(*(one(i, t, p) for i, t, p in jobs))
@@ -140,6 +145,7 @@ def synth_vieneu(jobs, voice: str, batch_size: int, precision: str) -> List[int]
 
     failed: List[int] = []
     done = 0
+    _t0 = time.time()
     for s in range(0, len(jobs), batch_size):
         chunk = jobs[s:s + batch_size]
         texts = [t for _, t, _ in chunk]
@@ -165,7 +171,13 @@ def synth_vieneu(jobs, voice: str, batch_size: int, precision: str) -> List[int]
             sf.write(str(path), a, SR, subtype="PCM_16")
 
         done += len(chunk)
-        sys.stdout.write(f"\r  [tts] tổng hợp {done}/{len(jobs)}   ")
+        # In kèm tốc độ ĐO THẬT và mảnh audio vừa ghi: giao diện cần hai
+        # thứ này để ước lượng thời gian còn lại cho đúng, và để nghe thử
+        # ngay câu vừa đọc xong thay vì chờ hết cả phim.
+        gpc = (time.time() - _t0) / max(1, done)
+        cuoi = str(chunk[-1][2]) if chunk else ""
+        sys.stdout.write(f"\r  [tts] tổng hợp {done}/{len(jobs)} | "
+                         f"{gpc:.2f} s/câu | piece={cuoi}   ")
         sys.stdout.flush()
     print()
     return failed
