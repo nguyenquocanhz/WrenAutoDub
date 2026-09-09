@@ -145,7 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="chép cả phim gốc vào (mặc định chỉ ghi đường dẫn)")
 
     e = sub.add_parser("edit", help="mở cửa sổ sửa video (hiệu ứng, phụ đề, xuất bản)")
-    e.add_argument("video", help="file video cần sửa")
+    e.add_argument("video", nargs="?", default="",
+                   help="file phim cần sửa; bỏ trống thì mở màn hình chọn phim")
     e.add_argument("-w", "--workdir", help="thư mục làm việc (mặc định <tên>_work)")
     e.add_argument("--qml", action="store_true",
                    help="dùng giao diện QML (bản đang dựng) thay cho Widgets")

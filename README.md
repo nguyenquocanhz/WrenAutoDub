@@ -105,9 +105,19 @@ giữa chừng như thiếu DLL CUDA hay ffmpeg không có filter cần thiết.
 
 ## Tình trạng
 
-Đang phát triển. Hai giao diện chạy song song: bản PyQt6 Widgets đầy đủ tính
-năng, bản QML mới hơn đang dựng dần và đã dùng được (phát video, cắt ghép, sửa
-phụ đề, xuất bản).
+Đang phát triển. Hai giao diện chạy song song.
+
+Bản QML đi theo ba màn hình nối tiếp — **Mở → Đang chạy → Dựng** — phản ánh
+đúng bản chất sản phẩm: một dây chuyền thuyết minh có kèm chỗ sửa, không phải
+một trình dựng đa dụng. Màn hình giữa theo dõi cả bốn bước: thẻ đã xong gập
+lại một dòng, thẻ đang chạy nở ra kèm thanh tiến độ riêng, và báo luôn số câu
+bị ép quá tay để biết còn bao nhiêu việc phải sửa.
+
+```bash
+python wren.py edit --qml          # mở màn hình chọn phim
+```
+
+Bản PyQt6 Widgets đầy đủ tính năng hơn ở phần dựng (hiệu ứng, đổi tốc độ).
 
 Chưa có: fade, keyframe âm lượng, transition giữa clip.
 

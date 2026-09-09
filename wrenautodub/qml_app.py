@@ -38,8 +38,23 @@ class EditorBridge(QObject):
     playingChanged = pyqtSignal()
     positionChanged = pyqtSignal()
 
-    def __init__(self, video: str, workdir: Optional[str] = None):
+    def __init__(self, video: str = "", workdir: Optional[str] = None):
         super().__init__()
+        self._workdir = workdir
+        if not video:
+            # Mở app chưa chọn phim: dựng rỗng, nạp thật khi người dùng chọn.
+            self.work = Path(".")
+            self.proj = Project()
+            self.cues = []
+            self.player = VideoPlayer(self)
+            self.timeline = None
+            self.preview = None
+            self._pos = 0.0
+            self._status = ""
+            return
+        self._nap(video, workdir)
+
+    def _nap(self, video: str, workdir: Optional[str] = None):
         v = Path(video)
         self.work = Path(workdir) if workdir else v.parent / f"{v.stem}_work"
         info = ffprobe_info(video)
@@ -133,6 +148,48 @@ class EditorBridge(QObject):
         self.statusChanged.emit()
 
     # ---- lệnh gọi từ QML
+
+    @pyqtSlot(str, result=str)
+    def duongDanTuUrl(self, url: str) -> str:
+        """file:///D:/x.mkv -> D:/x.mkv. QML trả URL, Python cần đường dẫn."""
+        if not url:
+            return ""
+        u = QUrl(url)
+        return u.toLocalFile() if u.isLocalFile() else url
+
+    @pyqtSlot(str, result=str)
+    def tenFile(self, p: str) -> str:
+        return Path(p).name if p else ""
+
+    @pyqtSlot(str, result=str)
+    def thongTinPhim(self, p: str) -> str:
+        """Một dòng tóm tắt phim cho màn hình mở."""
+        if not p or not Path(p).exists():
+            return ""
+        i = ffprobe_info(p)
+        d = i.get("duration") or 0.0
+        gio, con = divmod(int(d), 3600)
+        phut, giay = divmod(con, 60)
+        dai = (f"{gio}:{phut:02d}:{giay:02d}" if gio else f"{phut}:{giay:02d}")
+        w, h = i.get("width") or 0, i.get("height") or 0
+        mb = Path(p).stat().st_size / 1024 / 1024
+        return f"{dai}  ·  {w}×{h}  ·  {mb:.0f} MB"
+
+    @pyqtSlot(result=str)
+    def chonPhim(self) -> str:
+        from PyQt6.QtWidgets import QFileDialog
+        f, _ = QFileDialog.getOpenFileName(
+            None, "Chọn phim", "",
+            "Phim (*.mkv *.mp4 *.avi *.mov *.ts *.m4v);;Tất cả (*)")
+        return f or ""
+
+    @pyqtSlot(str)
+    def moDuAn(self, video: str) -> None:
+        """Nạp dự án cho trình dựng sau khi chuỗi 4 bước chạy xong."""
+        if not video:
+            return
+        self._nap(video, self._workdir)
+        self.changed.emit()
 
     @pyqtSlot(QObject)
     def attachTimeline(self, item) -> None:
@@ -343,10 +400,16 @@ def launch(video: str, workdir: Optional[str] = None) -> int:
     qmlRegisterType(TimelineItem, "Wren", 1, 0, "TimelineView")
     qmlRegisterType(PreviewItem, "Wren", 1, 0, "PreviewView")
 
+    from .qml_pipeline import PipelineBridge
+
     bridge = EditorBridge(video, workdir)
+    pipe = PipelineBridge()
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("app", bridge)
-    engine.load(QUrl.fromLocalFile(str(QML_DIR / "editor.qml")))
+    engine.rootContext().setContextProperty("pipe", pipe)
+    # Mở sẵn một phim thì vào thẳng trình dựng; không thì bắt đầu từ màn Mở.
+    engine.rootContext().setContextProperty("manDau", 2 if video else 0)
+    engine.load(QUrl.fromLocalFile(str(QML_DIR / "App.qml")))
     if not engine.rootObjects():
         print("Không nạp được giao diện QML.")
         return 1
