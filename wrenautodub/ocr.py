@@ -40,6 +40,9 @@ W_NHO, H_NHO = 480, 42  # cỡ dải phụ đề sau khi thu nhỏ
 NGUONG_SANG = 230       # nét chữ phụ đề là trắng gắt, nền phim hiếm khi tới đây
 DAC_TOI_THIEU = 0.006   # tỉ lệ điểm sáng để coi là "có chữ"
 NGUONG_GOP = 0.035      # mặt nạ đổi quá mức này thì tính là câu mới
+NGAN = 12               # dải đen ngăn giữa hai ảnh xếp chồng, pixel
+LO = 6                  # số đoạn xếp chồng vào một lần gọi OCR;
+                        # đúng bằng rec_batch_num mặc định của RapidOCR
 
 
 def _co_numpy():
@@ -203,12 +206,50 @@ def _khung(video: str | Path, t: float, y: int, cao: int):
     return np.frombuffer(r.stdout[:cao * rong * 3], np.uint8).reshape(cao, rong, 3)
 
 
+def _khung_hang_loat(video, moc_giay, y, cao, luong: int = 4):
+    """Lấy nhiều khung, seek SONG SONG.
+
+    Đã thử gộp thành một lệnh ffmpeg với filter `select='eq(n,a)+eq(n,b)+...'`
+    để chỉ giải mã một lần: với 250 điều kiện thì ffmpeg đổ
+    "Cannot allocate memory" — biểu thức quá lớn cho bộ phân tích của nó.
+
+    Seek riêng từng khung mất 273 ms, nhưng các tiến trình ffmpeg độc lập nhau
+    nên chạy song song được. Bốn luồng là vừa: nhiều hơn thì tranh ổ đĩa.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    ra = {}
+    if not moc_giay:
+        return ra
+
+    def mot(t):
+        return t, _khung(video, t, y, cao)
+
+    with ThreadPoolExecutor(max_workers=luong) as ex:
+        for t, im in ex.map(mot, moc_giay):
+            if im is not None:
+                ra[t] = im
+    return ra
+
+
+def _rong(video) -> int:
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width", "-of", "csv=p=0", str(video)],
+            capture_output=True, text=True, timeout=60)
+        return int((r.stdout or "0").strip() or 0)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return 0
+
+
 def quet(video: str | Path, vung: Tuple[int, int],
          lang_goc: str = "zh") -> List[Cue]:
     """Quét cả phim, trả về các câu đọc được từ phụ đề nung.
 
     `lang_goc` chỉ dùng để chọn dòng nào khi khung có nhiều dòng chữ.
     """
+    import numpy as np
     from rapidocr_onnxruntime import RapidOCR
 
     y, cao = vung
@@ -219,39 +260,97 @@ def quet(video: str | Path, vung: Tuple[int, int],
     print(f"  [ocr] dải phụ đề y={y} cao={cao} | {n} khung | "
           f"{len(doan)} đoạn cần đọc")
 
+    moc = [round((i0 + i1) / 2.0 / FPS_QUET, 2) for i0, i1 in doan]
+    t0 = time.time()
+    khung = _khung_hang_loat(video, sorted(set(moc)), y, cao)
+    print(f"  [ocr] lấy {len(khung)} khung trong {time.time()-t0:.0f}s")
+
     ocr = RapidOCR()
     cues: List[Cue] = []
-    t0 = time.time()
-    for k, (i0, i1) in enumerate(doan):
-        t_giua = (i0 + i1) / 2.0 / FPS_QUET
-        im = _khung(video, t_giua, y, cao)
-        if im is None:
+    for b0 in range(0, len(doan), LO):
+        lo = list(range(b0, min(b0 + LO, len(doan))))
+        anh, mep_k = [], []
+        for k in lo:
+            im = khung.get(moc[k])
+            if im is None:
+                continue
+            # Bỏ hai bên: chữ luôn nằm giữa, mà ảnh quá rộng thì bộ dò co nhỏ
+            # ảnh lại làm chữ teo mất — đã đo, để nguyên bề ngang đọc ra 0 dòng.
+            g = im[:, int(im.shape[1] * 0.18):int(im.shape[1] * 0.82)]
+            mep_k.append((0, g.shape[0], k))
+            anh.append(g)
+        if not anh:
             continue
-        # Bỏ hai bên: chữ luôn nằm giữa, mà ảnh quá rộng thì bộ dò co nhỏ
-        # ảnh lại làm chữ teo mất — đã đo, để nguyên bề ngang là đọc ra 0 dòng.
-        g = im[:, int(im.shape[1] * 0.18):int(im.shape[1] * 0.82)]
+
+        # XẾP CHỒNG cả lô vào một ảnh rồi gọi OCR MỘT lần. Cấu hình RapidOCR
+        # có rec_batch_num=6, gọi từng ảnh một là bỏ phí. Đo được: 6 ảnh gọi
+        # riêng hết 19,1 giây, xếp chồng còn 2,5 giây — nhanh 7,6 lần.
+        # Chèn dải đen giữa hai ảnh: không có thì bộ dò nối liền dòng cuối
+        # ảnh trên với dòng đầu ảnh dưới, mất câu ở chỗ giáp ranh.
+        W = max(x.shape[1] for x in anh)
+        mep = []
+        oy = 0
+        for k, x in zip([m for _o, _h, m in mep_k], anh):
+            mep.append((oy, x.shape[0], k))
+            oy += x.shape[0] + NGAN
+        chong = np.zeros((oy, W, 3), np.uint8)
+        for (o2, _h, _k), x in zip(mep, anh):
+            chong[o2:o2 + x.shape[0], :x.shape[1]] = x
         try:
-            kq, _ = ocr(g)
+            kq, _ = ocr(chong)
         except Exception:
             kq = None
-        dong = [str(t[1]).strip() for t in (kq or []) if str(t[1]).strip()]
-        if not dong:
-            continue
-        txt = _chon_dong(dong, lang_goc)
-        if not txt:
-            continue
-        cues.append(Cue(i0 / FPS_QUET, (i1 + 1) / FPS_QUET, txt))
 
-        if k % 20 == 0 or k == len(doan) - 1:
-            el = time.time() - t0
-            con = el / max(k + 1, 1) * (len(doan) - k - 1)
-            sys.stdout.write(f"\r  [ocr] {k+1}/{len(doan)} đoạn | "
-                             f"{len(cues)} câu | còn ~{con/60:.1f}p   ")
-            sys.stdout.flush()
+        # Chia kết quả về từng đoạn theo toạ độ dọc của hộp chữ
+        theo = {k: [] for _o, _h, k in mep}
+        for it in (kq or []):
+            hop = it[0]
+            try:
+                ym = sum(pt[1] for pt in hop) / len(hop)
+            except Exception:
+                continue
+            for oy, h, k in mep:
+                if oy <= ym < oy + h:
+                    t = str(it[1]).strip()
+                    if t:
+                        theo[k].append(t)
+                    break
+
+        for k in lo:
+            dong = theo.get(k) or []
+            if not dong:
+                continue
+            txt = _chon_dong(dong, lang_goc)
+            if not txt:
+                continue
+            i0, i1 = doan[k]
+            cues.append(Cue(i0 / FPS_QUET, (i1 + 1) / FPS_QUET, txt))
+
+        el = time.time() - t0
+        xong = min(b0 + LO, len(doan))
+        con = el / max(xong, 1) * (len(doan) - xong)
+        sys.stdout.write(f"\r  [ocr] {xong}/{len(doan)} đoạn | "
+                         f"{len(cues)} câu | còn ~{con/60:.1f}p   ")
+        sys.stdout.flush()
     print()
     cues = _don(cues)
     print(f"  [ocr] xong: {len(cues)} câu trong {(time.time()-t0)/60:.1f} phút")
     return cues
+
+
+def _fps(video) -> float:
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0",
+             str(video)], capture_output=True, text=True, timeout=60)
+        t = (r.stdout or "").strip()
+        if "/" in t:
+            a, b = t.split("/")
+            return float(a) / max(1.0, float(b))
+        return float(t or 0)
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return 0.0
 
 
 def _chon_dong(dong: List[str], lang: str) -> str:
