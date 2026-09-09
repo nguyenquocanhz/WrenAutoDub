@@ -364,6 +364,14 @@ def _chon_dong(dong: List[str], lang: str) -> str:
             return 0.0
         return sum(1 for c in s if "一" <= c <= "鿿") / len(s)
 
+    if not lang:
+        # Không biết ngôn ngữ nguồn. Nhưng đích LUÔN là tiếng Việt, nên dòng
+        # nguồn là dòng KHÔNG phải tiếng Việt — nhận ra bằng dấu đặc trưng.
+        # Có chữ Hán thì chắc chắn đó là dòng gốc.
+        if any(han(x) > 0.15 for x in dong):
+            return max(dong, key=han)
+        return min(dong, key=_viet)
+
     if lang.startswith("zh") or lang in ("ja", "ko", "yue"):
         # Kiểm cả khi chỉ có MỘT dòng: credit cuối phim hay ra đúng một mảnh
         # rác kiểu "451" hoặc "AZTEC", thoát sớm là lọt.
@@ -377,6 +385,19 @@ def _chon_dong(dong: List[str], lang: str) -> str:
     if len(dong) == 1:
         return dong[0]
     return min(dong, key=han)
+
+
+_VIET = set("ăâđêôơưĂÂĐÊÔƠƯ"
+            "áàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩị"
+            "óòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ")
+_VIET |= {c.upper() for c in _VIET}
+
+
+def _viet(s: str) -> float:
+    """Tỉ lệ ký tự có dấu tiếng Việt — để nhận ra dòng nào là bản dịch."""
+    if not s:
+        return 0.0
+    return sum(1 for c in s if c in _VIET) / len(s)
 
 
 def _don(cues: List[Cue], khe: float = 0.25) -> List[Cue]:

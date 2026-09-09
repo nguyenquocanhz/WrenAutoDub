@@ -266,7 +266,9 @@ def transcribe(
 
     segments, info = model.transcribe(
         str(audio),
-        language=language,
+        # Rỗng -> None: Whisper tự dò. Đóng cứng "ja" như trước là video tiếng
+        # Anh cũng bị ép nhận dạng thành tiếng Nhật, ra toàn chữ vô nghĩa.
+        language=(language or None),
         beam_size=beam_size,
         # KHÔNG khoá temperature=0: cần fallback để thoát vòng lặp lải nhải
         temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],

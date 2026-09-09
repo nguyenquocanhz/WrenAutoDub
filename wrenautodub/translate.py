@@ -119,7 +119,9 @@ def translate_srt(
 
     cache_path = Path(cache_path or out_srt.with_suffix(".cache.json"))
     cache = _load_cache(cache_path)
-    src, tgt = map_lang(source), map_lang(target)
+    # Rỗng -> "auto": Google tự dò. Trước đây mặc định là "ja" nên video
+    # tiếng Anh cũng bị bảo là tiếng Nhật.
+    src, tgt = (map_lang(source) if source else "auto"), map_lang(target)
     if src != source or tgt != target:
         print(f"  [dich] ma ngon ngu: {source}->{src}, {target}->{tgt}")
     try:

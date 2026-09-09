@@ -31,7 +31,10 @@ def paths(video: Path, workdir: str | None):
     return {
         "work": work,
         "audio": work / "audio16k.wav",
-        "ja": work / "ja.srt",
+        # Tên cũ là ja.srt từ hồi công cụ chỉ làm phim Nhật. Giờ nó nhận
+        # mọi ngôn ngữ nên đổi thành goc.srt; file cũ vẫn dùng được.
+        "ja": (work / "ja.srt" if (work / "ja.srt").exists()
+               else work / "goc.srt"),
         "vi": work / "vi.srt",
         "cache": work / "vi.cache.json",
         "dub": work / "dub.wav",
@@ -55,7 +58,9 @@ def _pipeline_opts() -> argparse.ArgumentParser:
     g.add_argument("--compute-type", default="auto",
                    help="auto/int8_float16/int8/float16 (auto sẽ tự dò và fallback)")
     g.add_argument("--beam-size", type=int, default=5)
-    g.add_argument("--lang", default="ja", help="ngôn ngữ nguồn")
+    g.add_argument("--lang", default="",
+                   help="ngôn ngữ nguồn; bỏ trống thì TỰ DÒ "
+                        "(ja, zh, en, ko...)")
     g.add_argument("--no-prompt", action="store_true", help="tắt initial_prompt tiếng Nhật")
     g.add_argument("--no-ocr", action="store_true",
                    help="đừng thử đọc phụ đề nung trên hình, luôn dùng Whisper")
