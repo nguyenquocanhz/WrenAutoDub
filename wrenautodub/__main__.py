@@ -218,6 +218,11 @@ def _run_pipeline(args) -> int:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
+    # Bat truoc moi thu. PyQt6 giet process ngay khi mot exception lot ra
+    # khoi slot Qt, khong in gi - khong co cai nay thi cua so chi bien mat.
+    from . import crashlog
+    crashlog.install(hien_hop_thoai=args.cmd in ("gui", "edit"))
+
     if args.cmd == "models":
         from . import models
         if args.get:

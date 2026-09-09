@@ -49,6 +49,7 @@ C_FX = {BLUR: QColor(90, 170, 250), DELOGO: QColor(240, 140, 70),
 
 class Timeline(QWidget):
     seeked = pyqtSignal(float)
+    seekDone = pyqtSignal(float)        # tha tay sau khi keo dau doc
     speedsChanged = pyqtSignal()
     committed = pyqtSignal()
     speedSelected = pyqtSignal(int)
@@ -739,6 +740,7 @@ class Timeline(QWidget):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             return          # co dãn lớp không phải sửa dự án, đừng đẩy vào undo
         if mode == "head":
+            self.seekDone.emit(self.playhead)   # chot dung vi tri cuoi, khong gop
             return
 
         # Bấm mà không kéo trên chip phụ đề = nhảy tới câu đó

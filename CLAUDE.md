@@ -81,6 +81,19 @@ cắt vẫn còn và mốc sai hết.
   backslash-n bien thanh xuong dong that, backslash-s va backslash-d
   trong regex mat backslash. Viet script va khong dung escape nao, hoac
   dung cong cu ghi file.
+- **QMediaPlayer khong giai ma khung nao truoc khi that su phat.** Chi
+  setSource roi doi thi khung xem truoc dung o "Dang lay khung hinh..."
+  vinh vien, ke ca sau khi goi seek(0). Phai nha play/pause mot cai.
+- **Keo dau doc luc dang phat phai GOP lenh tua.** Chuot sinh ~60 su kien moi
+  giay, tua du 60 lan thi bo giai ma nghen: do duoc 2.3 FPS va co lan dung
+  hinh 5.2 giay. Gop con toi da 1 lan / 90ms.
+- **Dung phat trong luc keo lam TE HON** (6.7 -> 2.8 FPS): dung roi thi khung
+  hinh chi con den tu lenh tua. Da thu va da bo.
+- **File h264 thieu khung tham chieu lam moi lan tua deu dat.** Cung do phan
+  giai, cung thao tac: phim lanh keo duoc 20.8 FPS (te nhat 202ms), phim tai
+  hut segment chi 2.8-6.7 FPS va co cu dung 4.2 giay. Do la file, khong phai app.
+- **PyQt6 giet process ngay khi exception lot ra khoi slot Qt**, khong in gi.
+  Cua so chi bien mat. Dung `crashlog.install()` de con dau vet ma doc.
 - **Thời lượng đúng KHÔNG chứng minh nội dung đúng.** Bản cắt từng ra đủ
   14.000s mà tiếng vẫn phát đoạn đã bị cắt khỏi hình. Kiểm bằng nội dung: màu
   khung hình, tần số sóng âm, `volumedetect` — đừng bao giờ chỉ so `ffprobe`.

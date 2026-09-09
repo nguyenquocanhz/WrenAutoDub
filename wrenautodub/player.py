@@ -14,9 +14,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import time
+
 from PyQt6.QtCore import QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
+
+# Toi da mot lenh tua moi chung nay mili giay khi dang keo dau doc.
+# 90ms la nguong do duoc: thap hon thi bo giai ma nghen, cao hon thi
+# hinh chay theo tay tre thay ro.
+SEEK_GOP_MS = 90.0
 
 DRIFT_MS = 300          # lệch quá ngần này thì kéo track thuyết minh về
 
@@ -47,6 +54,11 @@ class VideoPlayer(QObject):
         self.duration = 0.0
         self._ok = True
         self._moi_nap = False       # dang cho khung hinh dau tien sau khi mo
+        self._seek_dich = 0.0       # vi tri tua dang cho, xem seek()
+        self._seek_luc = 0.0
+        self._seek_timer = QTimer(self)
+        self._seek_timer.setSingleShot(True)
+        self._seek_timer.timeout.connect(self._tua_that)
 
         self.sink.videoFrameChanged.connect(self._on_frame)
         self.video.mediaStatusChanged.connect(self._on_status)
@@ -94,8 +106,29 @@ class VideoPlayer(QObject):
         if self.has_dub:
             self.dub.stop()
 
-    def seek(self, seconds: float) -> None:
-        ms = int(max(0.0, seconds) * 1000)
+    def seek(self, seconds: float, ngay: bool = False) -> None:
+        """Tua. Kéo đầu đọc thì GỘP lệnh lại thay vì tua theo từng pixel.
+
+        Mỗi setPosition bắt bộ giải mã xả sạch rồi nạp lại từ khung khoá.
+        Kéo chuột sinh ~60 sự kiện mỗi giây; tua đủ 60 lần thì bộ giải mã
+        không kịp thở — đo được 2.3 FPS và có lần đứng hình 5.2 giây. Gộp
+        lại còn tối đa ~1 lần mỗi SEEK_GOP_MS, và luôn tua đúng vị trí cuối
+        cùng khi thả tay (ngay=True).
+        """
+        self._seek_dich = max(0.0, seconds)
+        if ngay:
+            self._seek_timer.stop()
+            self._tua_that()
+            return
+        tu_lan_truoc = (time.monotonic() - self._seek_luc) * 1000
+        if tu_lan_truoc >= SEEK_GOP_MS:
+            self._tua_that()
+        elif not self._seek_timer.isActive():
+            self._seek_timer.start(int(SEEK_GOP_MS - tu_lan_truoc))
+
+    def _tua_that(self) -> None:
+        self._seek_luc = time.monotonic()
+        ms = int(self._seek_dich * 1000)
         self.video.setPosition(ms)
         if self.has_dub:
             self.dub.setPosition(ms)

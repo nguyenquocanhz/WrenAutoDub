@@ -125,6 +125,7 @@ class EditorWindow(QWidget):
         self.tl.dub_clips = self.proj.dub_clips
         self.tl.ripple = self.proj.ripple
         self.tl.seeked.connect(self._tl_seeked)
+        self.tl.seekDone.connect(self._tl_seek_done)
         self.tl.speedsChanged.connect(self._speeds_live)
         self.tl.committed.connect(self._commit)
         self.tl.speedSelected.connect(self._speed_selected)
@@ -747,6 +748,11 @@ class EditorWindow(QWidget):
 
     def _tl_seeked(self, t: float) -> None:
         self.seek(t, from_timeline=True)
+
+    def _tl_seek_done(self, t: float) -> None:
+        """Thả tay sau khi kéo đầu đọc: tua ngay, không qua bộ gộp lệnh."""
+        if self.player.usable():
+            self.player.seek(max(0.0, min(t, self.proj.duration)), ngay=True)
 
     def seek(self, t: float, from_timeline: bool = False) -> None:
         t = max(0.0, min(t, self.proj.duration))
