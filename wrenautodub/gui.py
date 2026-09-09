@@ -867,6 +867,12 @@ class MainWindow(QWidget):
 
 
 def launch() -> int:
+    # Backend ffmpeg của Qt ghi thẳng lỗi giải mã ra stderr. Với file
+    # tải hụt segment thì nó phun hàng trăm dòng "Error submitting
+    # packet to decoder" trong lúc phát thử — người dùng tưởng app
+    # hỏng. Bản thân việc phát vẫn chạy, ffmpeg chỉ bỏ gói tin hỏng.
+    os.environ.setdefault("QT_LOGGING_RULES",
+                          "qt.multimedia.ffmpeg*=false")
     app = QApplication(sys.argv)
     app.setStyle(QStyleFactory.create("Fusion"))
     app.setPalette(dark_palette())
