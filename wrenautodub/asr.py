@@ -198,6 +198,49 @@ def _split_by_text(seg, max_chars: int) -> List[Cue]:
     return cues
 
 
+# Whisper hoc tu 680.000 gio video kem phu de cao tren mang, trong do vo so
+# phim co NHAC chay tren phan credit con dong phu de luc do ghi ten nhom dich
+# hay ten nen tang. No hoc lien ket "nhac -> chu credit", nen gap nhac hieu la
+# nha ra nguyen van may cau nay du khong ai noi gi.
+#
+# Da dinh that: mot phim 15 phut ra 4 cau kieu nay (2,6%), va vi TTS doc het
+# nen ban thuyet minh MO DAU bang cau "Phu de boi Amara, cong dong org cung cap".
+#
+# Chi liet ke cum DAC HIEU - thu khong bao gio la thoai that. Khong loc theo
+# mat do chu/giay: da do tren phim that, "十身" (2 chu / 17.6 giay) la thoai
+# that, loc kieu do se xoa nham phu de that.
+_AO_GIAC = (
+    "amara.org", "amara.", "字幕由", "字幕提供", "社群提供", "中文字幕志愿者",
+    "优优独播剧场", "yoyo television series", "独播剧场",
+    "请不吝点赞", "订阅 转发", "打赏支持", "点点栏目",
+    "subtitles by", "subtitled by", "transcribed by", "captions by",
+    "thanks for watching", "thank you for watching",
+    "字幕組", "字幕组", "翻译:", "校对:", "时间轴:",
+    "ご視聴ありがとうございました", "字幕視聴",
+)
+
+
+def loc_ao_giac(cues):
+    """Bo may cau credit ma Whisper tu bia ra khi gap nhac hieu.
+
+    Chi BO, khong bao gio sua chu. Cau nao bi bo deu in ra de con soi lai.
+    """
+    giu, bo = [], []
+    for c in cues:
+        t = c.text.strip().lower()
+        if t and any(m in t for m in _AO_GIAC):
+            bo.append(c)
+        else:
+            giu.append(c)
+    if bo:
+        print(f"  [asr] bo {len(bo)} cau ao giac (Whisper bia credit khi gap nhac):")
+        for c in bo[:6]:
+            print(f"          {c.start:7.1f}s  {c.text[:52]}")
+        if len(bo) > 6:
+            print(f"          ... va {len(bo) - 6} cau nua")
+    return giu
+
+
 def transcribe(
     audio: str | Path,
     out_srt: str | Path,
@@ -267,6 +310,7 @@ def transcribe(
             sys.stdout.flush()
     print()
 
+    cues = loc_ao_giac(cues)
     write_srt(out_srt, cues)
     print(f"  [asr] xong: {out_srt} ({len(cues)} câu, {(time.time()-t0)/60:.1f} phút)")
     return cues

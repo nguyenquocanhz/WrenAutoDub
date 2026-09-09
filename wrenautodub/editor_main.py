@@ -6,8 +6,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt6.QtCore import QProcess, Qt, QTimer
-from PyQt6.QtGui import QColor, QFont, QImage, QKeySequence, QShortcut
+from PyQt6.QtCore import QProcess, QRect, Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QFont, QImage, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                              QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                              QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -26,7 +26,12 @@ from .icons import icon
 from .mux import escape_sub_path
 from .player import MIX_BOTH, MIX_DUB, MIX_ORIG, VideoPlayer
 from .srtutil import Cue, fmt_ts, parse_ts, read_srt, write_srt
-from .timeline import Timeline
+from .theme import LAM_2, pha
+from .timeline import L_SUB, Timeline
+
+# Nền dòng đang phát. Dùng pha() thay vì khai màu mới — cùng nguồn với màu
+# chip phụ đề nên hai chỗ luôn ăn khớp.
+C_DANG_DOC = QBrush(pha(LAM_2, 0.22))
 from .timing import CURVE_PRESETS, expand_preset
 
 RES_CHOICES = [("Giữ nguyên", 0), ("1080p", 1080), ("720p", 720), ("480p", 480)]
@@ -72,6 +77,10 @@ class EditorWindow(QWidget):
 
         self.hist = History(self.proj)
         self.cues: List[Cue] = read_srt(self.proj.srt) if Path(self.proj.srt).exists() else []
+        # Phụ đề GỐC do ASR nhận ra, để đối chiếu. Sản phẩm này là bản DỊCH mà
+        # người dùng không có gì soi lại thì không biết câu nào dịch sai.
+        _goc = self.work / "ja.srt"
+        self.cues_goc: List[Cue] = read_srt(_goc) if _goc.exists() else []
         self._frame_proc: Optional[QProcess] = None
         self._frame_buf = bytearray()
         self._pending = 0.0
@@ -421,9 +430,17 @@ class EditorWindow(QWidget):
         return self.stack
 
     def _panel_subs(self) -> QWidget:
-        self.tbl = QTableWidget(0, 3)
-        self.tbl.setHorizontalHeaderLabels(["Bắt đầu", "Kết thúc", "Lời thoại"])
-        self.tbl.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        co_goc = bool(self.cues_goc)
+        self.tbl = QTableWidget(0, 4 if co_goc else 3)
+        self.tbl.setHorizontalHeaderLabels(
+            ["Bắt đầu", "Kết thúc", "Lời gốc", "Lời thoại"] if co_goc
+            else ["Bắt đầu", "Kết thúc", "Lời thoại"])
+        hh = self.tbl.horizontalHeader()
+        if co_goc:
+            hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        else:
+            hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.tbl.setColumnWidth(0, 94)
         self.tbl.setColumnWidth(1, 94)
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked
@@ -806,18 +823,42 @@ class EditorWindow(QWidget):
             self.preview.update()
 
     def _highlight_cue(self, t: float) -> None:
+        """Làm nổi câu đang phát — KHÔNG đụng vào lựa chọn, KHÔNG cuộn ép.
+
+        Bản cũ gọi selectRow() mỗi lần đổi câu. selectRow vừa đổi lựa chọn vừa
+        TỰ CUỘN bảng, nên đang xem là bảng nhảy liên tục; mà ở đoạn phim không
+        có phụ đề thì nó bỏ mặc dòng cũ đang sáng, vào câu mới là giật một cái.
+        Giờ tô nền dòng thay vì đổi lựa chọn — lựa chọn để dành cho thao tác
+        của người dùng — và chỉ cuộn khi dòng đã trôi khỏi tầm nhìn.
+        """
         cur = -1
         for i, c in enumerate(self.cues):
             if c.start <= t <= c.end:
                 cur = i
                 break
-        if cur != self.tl.cur_cue:
-            self.tl.cur_cue = cur
-            self.tl.update()
-            if cur >= 0:
-                self.tbl.blockSignals(True)
-                self.tbl.selectRow(cur)
-                self.tbl.blockSignals(False)
+        if cur == self.tl.cur_cue:
+            return
+        truoc, self.tl.cur_cue = self.tl.cur_cue, cur
+
+        # Chỉ vẽ lại lớp phụ đề, không phải cả thanh thời gian
+        self.tl.update(QRect(0, self.tl.lane_y(L_SUB),
+                             self.tl.width(), self.tl.lane_h(L_SUB)))
+
+        self.tbl.blockSignals(True)
+        for hang, on in ((truoc, False), (cur, True)):
+            if not (0 <= hang < self.tbl.rowCount()):
+                continue
+            for col in range(self.tbl.columnCount()):
+                it = self.tbl.item(hang, col)
+                if it is not None:
+                    it.setBackground(C_DANG_DOC if on else QBrush())
+        self.tbl.blockSignals(False)
+
+        if cur >= 0:
+            o = self.tbl.visualItemRect(self.tbl.item(cur, 0))
+            if not self.tbl.viewport().rect().contains(o.center()):
+                self.tbl.scrollToItem(self.tbl.item(cur, 0),
+                                      QAbstractItemView.ScrollHint.EnsureVisible)
 
     # ============================================================ vùng hiệu ứng
 
@@ -969,12 +1010,35 @@ class EditorWindow(QWidget):
 
     # ================================================================ phụ đề
 
+    def _goc_cua(self, c: Cue) -> str:
+        """Câu gốc trùng khung thời gian với câu đã dịch.
+
+        Khớp theo ĐỘ CHỒNG thời gian chứ không theo chỉ số: người dùng có thể
+        đã tách hay gộp câu tiếng Việt, lúc đó chỉ số lệch hết.
+        """
+        tot, txt = 0.0, ""
+        for g in self.cues_goc:
+            ov = min(c.end, g.end) - max(c.start, g.start)
+            if ov > tot:
+                tot, txt = ov, g.text
+        return txt
+
     def _sync_cues(self) -> None:
         self.tbl.blockSignals(True)
         self.tbl.setRowCount(len(self.cues))
+        co_goc = bool(self.cues_goc)
         for i, c in enumerate(self.cues):
-            for col, val in ((0, fmt_ts(c.start)), (1, fmt_ts(c.end)), (2, c.text)):
-                self.tbl.setItem(i, col, QTableWidgetItem(val))
+            o = [(0, fmt_ts(c.start)), (1, fmt_ts(c.end))]
+            if co_goc:
+                o += [(2, self._goc_cua(c)), (3, c.text)]
+            else:
+                o += [(2, c.text)]
+            for col, val in o:
+                it = QTableWidgetItem(val)
+                if co_goc and col == 2:     # cột gốc chỉ để đối chiếu
+                    it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    it.setForeground(QColor(150, 154, 160))
+                self.tbl.setItem(i, col, it)
         self.tbl.blockSignals(False)
         self.tl.cues = self.cues
 
@@ -1044,12 +1108,15 @@ class EditorWindow(QWidget):
             return
         cue = self.cues[r]
         try:
+            cot_text = 3 if self.cues_goc else 2
             if c == 0:
                 cue.start = parse_ts(item.text())
             elif c == 1:
                 cue.end = parse_ts(item.text())
-            else:
+            elif c == cot_text:
                 cue.text = item.text()
+            else:
+                return                      # cột gốc, không sửa được
         except Exception:
             # gõ sai định dạng thì trả về giá trị cũ, đừng làm hỏng cue
             self.tbl.blockSignals(True)

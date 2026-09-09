@@ -41,59 +41,30 @@ R_LON, R_VUA, R_NHO = 8, 4, 2
 FONT_THUOC = 10     # nhan thuoc va chu trong chip
 
 # ===================================================================== màu
-# Hai tầng, học từ cách CapCut tổ chức 365 biến CSS của họ.
-#
-# TẦNG 1 — màu gốc, chỉ là giá trị, không mang ý nghĩa. Đánh số theo thang.
-# Bảy bậc nền thay vì bốn: thiếu bậc thì panel lồng nhau trôi vào nhau.
-# Mọi bậc đều NGẢ XANH (kênh blue cao hơn red/green vài đơn vị) — xám trung
-# tính làm giao diện tối trông bẹt và bẩn.
-_NEN_0 = QColor(14, 15, 18)         # sâu nhất, dưới cả nền cửa sổ
-_NEN_1 = QColor(20, 21, 24)         # nền thanh thời gian
-_NEN_2 = QColor(25, 27, 31)
-_NEN_3 = QColor(30, 32, 36)         # nền một lớp
-_NEN_4 = QColor(38, 40, 46)
-_NEN_5 = QColor(48, 51, 56)         # đường kẻ
-_NEN_6 = QColor(58, 60, 66)         # viền rõ, khoảng trống
+# Thang nằm ở theme.py, dùng chung cả app. Ở đây chỉ đặt TÊN THEO VAI TRÒ
+# cho những thứ riêng của thanh thời gian.
+from .theme import (NEN_0, NEN_1, NEN_2, NEN_3, NEN_4, NEN_5, NEN_6,
+                    CHU_0, CHU_1, CHU_2, CHU_3,
+                    LAM_1, LAM_2, LUC_1, DO_1, CAM_1, TIM_1, VANG_1, pha)
 
-_CHU_0 = QColor(252, 250, 238)      # sáng nhất, dành cho thứ đang chọn
-_CHU_1 = QColor(228, 234, 242)
-_CHU_2 = QColor(150, 154, 160)      # chữ thường
-_CHU_3 = QColor(110, 114, 120)      # chữ mờ
-
-_LAM_1 = QColor(72, 132, 196)       # màu dữ liệu: lớp phụ đề
-_LAM_2 = QColor(108, 174, 240)
-_LUC_1 = QColor(96, 176, 132)       # lớp thuyết minh
-_DO_1 = QColor(232, 84, 76)         # đầu phát
-_CAM_1 = QColor(214, 132, 52)       # tăng tốc
-_TIM_1 = QColor(150, 112, 210)      # giảm tốc
-_VANG_1 = QColor(250, 230, 120)     # nhát cắt
-
-
-def pha(c: QColor, a: float) -> QColor:
-    """Bản trong suốt của một màu. Đây là chỗ Qt hơn CSS.
-
-    CapCut phải lưu thêm bộ ba RGB (`--white-0-rgb: 250,250,250`) mới chế
-    được `rgba(var(--white-0-rgb), .12)`, vì CSS không tách được kênh từ mã
-    hex. Qt thì lấy thẳng từ QColor, nên chỉ cần một nguồn màu duy nhất.
-    """
-    return QColor(c.red(), c.green(), c.blue(), int(max(0.0, min(1.0, a)) * 255))
-
-
-# TẦNG 2 — tên theo VAI TRÒ, trỏ vào tầng 1. Đổi diện mạo cả app thì sửa ở
-# đây, không đi lùng mã màu rải rác trong các hàm vẽ.
-C_BG = _NEN_1
-C_LANE = _NEN_3
-C_GRID = _NEN_5
-C_GAP = _NEN_6
-C_TEXT = _CHU_2
-C_SEL = _CHU_0                      # viền + tay nắm khi đang chọn
-C_HEAD = _DO_1
-C_DUB = _LUC_1
-C_SUBCHIP = _LAM_1
-C_SUBCHIP_ON = _LAM_2
-C_FAST = _CAM_1
-C_SLOW = _TIM_1
-C_CUT = _VANG_1                     # vạch cắt giữa hai clip
+C_BG = NEN_1                        # nền rãnh, phía sau mọi lớp
+C_THUOC = NEN_2                     # dải thước phía trên
+C_COT = NEN_2                       # cột nhãn bên trái
+C_LANE = NEN_3                      # nền một lớp
+C_LANE_TRONG = NEN_2                # lớp chưa có gì — lõm hơn để bớt ồn
+C_GRID = NEN_5                      # đường kẻ dọc
+C_GAP = NEN_6                       # khoảng trống giữa hai clip
+C_VIEN = NEN_6
+C_TEXT = CHU_2
+C_TEXT_MO = CHU_3
+C_SEL = CHU_0                       # viền + tay nắm khi đang chọn
+C_HEAD = DO_1
+C_DUB = LUC_1
+C_SUBCHIP = LAM_1
+C_SUBCHIP_ON = LAM_2
+C_FAST = CAM_1
+C_SLOW = TIM_1
+C_CUT = VANG_1                      # vạch cắt giữa hai clip
 C_FX = {BLUR: QColor(90, 170, 250), DELOGO: QColor(240, 140, 70),
         LOGO: QColor(120, 220, 140)}
 
@@ -220,6 +191,18 @@ class Timeline(QWidget):
     def lane_h(self, i: int) -> int:
         return self.lane_heights()[i]
 
+    def _lop_trong(self, i: int) -> bool:
+        """Lớp này có gì để xem không?"""
+        if i == L_SUB:
+            return not self.cues
+        if i == L_DUB:
+            return self.wave.peaks is None or not len(self.wave.peaks)
+        if i == L_SPEED:
+            return not self.speeds
+        if i == L_FX:
+            return not self.regions
+        return False                # lớp hình luôn có nội dung
+
     def lane_edge_at(self, y: int, x: int = 0) -> int:
         """Con trỏ đang ở mép dưới của lớp nào (để kéo co dãn)? -1 nếu không.
 
@@ -300,9 +283,15 @@ class Timeline(QWidget):
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
-        p.fillRect(self.rect(), C_BG)
         r = self.track_rect()
         p.setClipRect(QRect(0, 0, self.width(), self.height()))
+
+        # Bốn mặt phẳng khác nhau thay vì một. Trước đây thước, cột nhãn và
+        # khe giữa các lớp đều là C_BG nên nhìn không ra cái nào nằm trên
+        # cái nào — đúng chỗ designer nói "mọi thứ trôi vào nhau".
+        p.fillRect(self.rect(), C_BG)
+        p.fillRect(QRect(0, 0, self.width(), RULER_H), C_THUOC)
+        p.fillRect(QRect(0, 0, LEFT_W, self.height()), C_COT)
 
         f = QFont()
         f.setPixelSize(FONT_THUOC)
@@ -334,13 +323,21 @@ class Timeline(QWidget):
                 p.drawText(x + 3, RULER_H - 7, self._fmt(t, chinh))
             t += chinh
 
-        # nền + nhãn lớp
+        # nền + nhãn lớp. Lớp chưa có gì thì lõm hơn và nhãn mờ đi — lớp Tốc
+        # độ với Hiệu ứng thường trống suốt, để chúng nổi bằng lớp có nội dung
+        # là mắt cứ bị kéo vào chỗ chẳng có gì.
         for i, (name, _h0) in enumerate(LANES):
             y, h = self.lane_y(i), self.lane_h(i)
-            p.fillRect(QRect(r.x(), y, r.width(), h), C_LANE)
-            p.setPen(C_TEXT)
+            trong = self._lop_trong(i)
+            p.fillRect(QRect(r.x(), y, r.width(), h),
+                       C_LANE_TRONG if trong else C_LANE)
+            p.setPen(C_TEXT_MO if trong else C_TEXT)
             p.drawText(QRect(4, y, LEFT_W - 10, h),
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, name)
+
+        p.setPen(QPen(C_VIEN, 1))
+        p.drawLine(0, RULER_H - 1, self.width(), RULER_H - 1)
+        p.drawLine(LEFT_W - 1, 0, LEFT_W - 1, self.height())
 
         self._paint_subs(p, r)
         self._paint_film(p, r)

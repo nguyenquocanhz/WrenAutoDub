@@ -47,22 +47,9 @@ RE_RESULT = re.compile(r"Kết quả:\s*(.+)")
 
 
 def dark_palette() -> QPalette:
-    p = QPalette()
-    bg, base, fg = QColor(32, 33, 36), QColor(24, 25, 28), QColor(226, 228, 232)
-    p.setColor(QPalette.ColorRole.Window, bg)
-    p.setColor(QPalette.ColorRole.WindowText, fg)
-    p.setColor(QPalette.ColorRole.Base, base)
-    p.setColor(QPalette.ColorRole.AlternateBase, bg)
-    p.setColor(QPalette.ColorRole.Text, fg)
-    p.setColor(QPalette.ColorRole.Button, QColor(45, 47, 51))
-    p.setColor(QPalette.ColorRole.ButtonText, fg)
-    p.setColor(QPalette.ColorRole.Highlight, QColor(72, 132, 214))
-    p.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
-    p.setColor(QPalette.ColorRole.ToolTipBase, base)
-    p.setColor(QPalette.ColorRole.ToolTipText, fg)
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(120, 122, 126))
-    p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(120, 122, 126))
-    return p
+    """Giữ tên cũ cho mọi chỗ đang gọi; thang thật nằm ở theme.py."""
+    from .theme import dark_palette as _bang
+    return _bang()
 
 
 def py_env() -> QProcessEnvironment:
