@@ -83,6 +83,7 @@ class Timeline(QWidget):
         self.sel_clip = -1
 
         self.zoom = 1.0                 # 1.0 = vừa khít bề ngang
+        self.fps = 25.0                 # để thước hiện được mốc khung hình
         self.scroll_t = 0.0             # giây ở mép trái
 
         self.strip = FilmStrip(self)
@@ -185,9 +186,29 @@ class Timeline(QWidget):
 
     # ------------------------------------------------------------------ vẽ
 
-    @staticmethod
-    def _fmt(t: float) -> str:
-        return f"{int(t // 60)}:{int(t % 60):02d}"
+    def _fmt(self, t: float, buoc: float = 1.0) -> str:
+        """Nhãn thước. Phóng sâu thì thêm số khung, phim dài thì thêm giờ.
+
+        Bản cũ luôn là phút:giây nên phim 2 tiếng hiện '125:30' thay vì
+        '2:05:30', và phóng tới mức khung hình cũng không hiện được khung nào.
+        """
+        # Tính THẲNG bằng số khung rồi mới tách ra. Tách giây trước rồi mới
+        # làm tròn phần lẻ thì t=6.0 lưu thành 5.999999 sẽ ra "5 giây, khung
+        # 25" -> kẹp xuống thành 5:24, trong khi đúng phải là 6:00.
+        fps = max(1, int(round(self.fps)))
+        tong = max(0, int(round(max(0.0, t) * fps)))
+        khung = tong % fps
+        giay_tong = tong // fps
+        gio, con = divmod(giay_tong, 3600)
+        phut, giay = divmod(con, 60)
+        if buoc < 1.0:
+            # Mức khung hình dùng timecode ĐỦ BỐN PHẦN h:mm:ss:ff. Rút gọn
+            # thành '0:01:21' thì đọc ra "1 phút 21 giây" trong khi nó là
+            # "1 giây, khung 21".
+            return f"{gio}:{phut:02d}:{giay:02d}:{khung:02d}"
+        if self.duration >= 3600:
+            return f"{gio}:{phut:02d}:{giay:02d}"
+        return f"{phut}:{giay:02d}"
 
     def paintEvent(self, _e) -> None:
         p = QPainter(self)
@@ -201,17 +222,29 @@ class Timeline(QWidget):
 
         t0, t1 = self.scroll_t, self.scroll_t + self.visible_span()
 
-        # thước
-        step = self._ruler_step()
-        t = (int(t0 / step)) * step
-        while t <= t1 + step:
+        # thước: vạch phụ ngắn trong dải thước, vạch chính kẻ suốt chiều cao
+        chinh, phu = self._ruler_step()
+        if phu > 0:
+            t = int(t0 / phu) * phu
+            p.setPen(QPen(C_GRID.darker(115), 1))
+            vach = []
+            while t <= t1 + phu:
+                x = self.x_of(t)
+                if r.x() <= x <= r.right():
+                    vach.append(QLine(x, RULER_H - 6, x, RULER_H - 1))
+                t += phu
+            if vach:
+                p.drawLines(vach)
+
+        t = int(t0 / chinh) * chinh
+        while t <= t1 + chinh:
             x = self.x_of(t)
             if r.x() <= x <= r.right():
                 p.setPen(C_GRID)
                 p.drawLine(x, 0, x, self.height())
                 p.setPen(C_TEXT)
-                p.drawText(x + 3, RULER_H - 7, self._fmt(t))
-            t += step
+                p.drawText(x + 3, RULER_H - 7, self._fmt(t, chinh))
+            t += chinh
 
         # nền + nhãn lớp
         for i, (name, _h0) in enumerate(LANES):
@@ -428,13 +461,26 @@ class Timeline(QWidget):
                                      195 if picked else (170 if hovered else 140))))
             p.drawRoundedRect(rc, 4, 4)
 
-    def _ruler_step(self) -> float:
+    def _ruler_step(self):
+        """(bước chính, bước phụ) tính bằng giây, chọn theo mức thu phóng.
+
+        Bản cũ dừng ở 1 giây nên phóng hết cỡ vẫn chỉ có nhãn mỗi giây, cách
+        nhau 600px — không đặt được đầu đọc vào đúng khung hình nào. Thang này
+        đi xuống tới TỪNG KHUNG, và trả thêm bước phụ để vẽ vạch nhỏ, vì giữa
+        hai nhãn mà trống trơn thì không ước lượng được vị trí.
+        """
         r = self.track_rect()
-        span = self.visible_span()
-        for step in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600):
-            if step / max(span, .001) * r.width() >= 66:
-                return float(step)
-        return max(1.0, span / 8)
+        px = r.width() / max(self.visible_span(), 0.001)     # pixel mỗi giây
+        f = 1.0 / max(self.fps, 1.0)
+        thang = [(f, 1), (2 * f, 2), (5 * f, 5), (10 * f, 5), (30 * f, 3),
+                 (1, 4), (2, 2), (5, 5), (10, 5), (15, 3), (30, 3),
+                 (60, 4), (120, 2), (300, 5), (600, 5), (900, 3),
+                 (1800, 3), (3600, 4), (7200, 2)]
+        for chinh, chia in thang:
+            if chinh * px >= 74:
+                return chinh, chinh / chia
+        chinh, chia = thang[-1]
+        return chinh, chinh / chia
 
     # --------------------------------------------------------- zoom & cuộn
 

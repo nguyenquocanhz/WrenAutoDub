@@ -145,6 +145,7 @@ class EditorBridge(QObject):
         tl.speeds = self.proj.speeds
         tl.regions = self.proj.regions
         tl.cues = self.cues
+        tl.fps = self.proj.fps or 25.0
         tl.dub_offset = self.proj.sync_offset
         tl.set_media(self.proj.video, self.proj.dub, self.proj.duration)
 

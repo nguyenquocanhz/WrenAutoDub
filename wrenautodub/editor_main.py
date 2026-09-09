@@ -117,6 +117,7 @@ class EditorWindow(QWidget):
 
         self.tl = Timeline()
         self.tl.duration = max(0.01, self.proj.duration)
+        self.tl.fps = self.proj.fps or 25.0
         self.tl.speeds = self.proj.speeds
         self.tl.regions = self.proj.regions
         self.tl.cues = self.cues
