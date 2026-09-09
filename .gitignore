@@ -23,6 +23,8 @@
 !.github/**
 !packaging/
 !packaging/**
+!train_ocr_vi/
+!train_ocr_vi/**
 !.claude/
 !.claude/**
 
@@ -31,6 +33,11 @@
 .claude/*.bak
 # launch.json la cau hinh chay rieng cua tung may, khong day len repo
 .claude/launch.json
+
+# Dữ liệu huấn luyện sinh ra, hàng trăm nghìn ảnh — không đẩy lên
+train_ocr_vi/data_vi/
+train_ocr_vi/*.tar.gz
+train_ocr_vi/*.onnx
 
 # Rác sinh ra lúc chạy
 wrenautodub/__pycache__/
