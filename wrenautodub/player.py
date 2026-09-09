@@ -186,8 +186,15 @@ class VideoPlayer(QObject):
         QTimer.singleShot(0, self._dung_nha)
 
     def _dung_nha(self) -> None:
+        """Dừng cú nhá lấy khung hình đầu tiên.
+
+        KHÔNG kéo về 0: cửa sổ editor hẹn seek(3.0) sau 120ms, mà cú nhá này
+        chạy ở ~200ms nên sẽ đè lên, hình đứng ở 0.00 thay vì 3s. Chỉ trả về
+        0 khi chưa ai tua đi đâu.
+        """
         self.video.pause()
-        self.video.setPosition(0)
+        if self._seek_luc == 0.0 and self._seek_dich == 0.0:
+            self.video.setPosition(0)
         self.a_video.setMuted(False)
 
     def _on_pos(self, ms: int) -> None:

@@ -29,6 +29,7 @@ L_SUB, L_VIDEO, L_DUB, L_SPEED, L_FX = range(5)
 LANE_GAP = 3
 LANE_MIN = 16       # chieu cao toi thieu cua mot lop, pixel
 LANE_EDGE = 4       # be rong vung bat de keo bien giua hai lop
+HEAD_W = 6          # nua be rong o vuong dau phat, dung cho vung ve lai
 
 C_BG = QColor(20, 21, 24)
 C_LANE = QColor(30, 32, 36)
@@ -84,6 +85,9 @@ class Timeline(QWidget):
 
         self.zoom = 1.0                 # 1.0 = vừa khít bề ngang
         self.fps = 25.0                 # để thước hiện được mốc khung hình
+        # 5 lớp x LANE_MIN + khe + thước là sàn vật lý; thấp hơn thì
+        # dù tính kiểu gì cũng có lớp bị cắt mất.
+        self.setMinimumHeight(RULER_H + len(LANES) * (LANE_MIN + LANE_GAP) + 8)
         self.scroll_t = 0.0             # giây ở mép trái
 
         self.strip = FilmStrip(self)
@@ -137,11 +141,45 @@ class Timeline(QWidget):
         room = self.height() - RULER_H - LANE_GAP * len(LANES) - 8
         return max(1.0, room / max(1.0, base))
 
-    def lane_h(self, i: int) -> int:
-        return max(LANE_MIN, int(LANES[i][1] * self.lane_w[i] * self.scale()))
+    def lane_heights(self) -> list:
+        """Chiều cao mọi lớp, đã bảo đảm tổng không vượt chỗ trống.
 
-    def lane_edge_at(self, y: int) -> int:
-        """Con trỏ đang ở mép dưới của lớp nào (để kéo co dãn)? -1 nếu không."""
+        Không thể chỉ `max(LANE_MIN, ...)` từng lớp: lớp bị bóp về tối thiểu
+        có trọng số rất nhỏ, thu nhỏ cửa sổ là cái kẹp 16px bơm thêm chiều cao
+        mà `scale()` không trừ đi đâu — đo được tràn 36px, lớp Hiệu ứng nằm
+        hẳn ngoài khung và không bấm được nữa.
+        """
+        sc = self.scale()
+        cao = [max(LANE_MIN, int(LANES[i][1] * self.lane_w[i] * sc))
+               for i in range(len(LANES))]
+        cho = self.height() - RULER_H - LANE_GAP * len(LANES) - 8
+        thua = sum(cao) - cho
+        if thua <= 0:
+            return cao
+        # Bớt dần ở lớp đang cao nhất cho tới khi vừa, nhưng không lớp nào
+        # được xuống dưới LANE_MIN.
+        while thua > 0:
+            i = max(range(len(cao)), key=lambda k: cao[k])
+            if cao[i] <= LANE_MIN:
+                break               # đã chạm sàn hết, widget quá thấp
+            bot = min(thua, cao[i] - LANE_MIN)
+            cao[i] -= bot
+            thua -= bot
+        return cao
+
+    def lane_h(self, i: int) -> int:
+        return self.lane_heights()[i]
+
+    def lane_edge_at(self, y: int, x: int = 0) -> int:
+        """Con trỏ đang ở mép dưới của lớp nào (để kéo co dãn)? -1 nếu không.
+
+        CHỈ nhận ở cột nhãn bên trái. Khối clip vẽ xuyên từ lớp Hình sang hết
+        lớp Thuyết minh, nên biên giữa hai lớp đó nằm ngay GIỮA THÂN CLIP —
+        bắt trên toàn bề ngang thì 14% số hàng trong thân clip bị nuốt mất cú
+        bấm, đúng chỗ người ta hay nắm để kéo.
+        """
+        if x >= LEFT_W:
+            return -1
         for i in range(len(LANES) - 1):
             bien = self.lane_y(i) + self.lane_h(i) + LANE_GAP // 2
             if abs(y - bien) <= LANE_EDGE:
@@ -267,7 +305,7 @@ class Timeline(QWidget):
             p.drawLine(x, 0, x, self.height())
             p.setBrush(QBrush(C_HEAD))
             p.setPen(Qt.PenStyle.NoPen)
-            p.drawRect(QRect(x - 5, 0, 10, 8))
+            p.drawRect(QRect(x - HEAD_W + 1, 0, HEAD_W * 2 - 2, 8))
         p.end()
 
     def _paint_subs(self, p: QPainter, r: QRect) -> None:
@@ -278,6 +316,10 @@ class Timeline(QWidget):
         # chip THUONG vao mot QPainterPath roi ve mot lan; chi cai dang doc,
         # dang chon va dang di chuot moi ve rieng vi khac mau.
         duong = QPainterPath()
+        # BAT BUOC. Mac dinh la OddEvenFill: hai chip chong nhau thi phan giao
+        # thanh LO thung, nhin ra nen. Xem het ca phim thi w=max(6,...) ep chip
+        # rong toi thieu 6px nen co toi 130 cap chong nhau.
+        duong.setFillRule(Qt.FillRule.WindingFill)
         rieng = []
         for i, c in enumerate(self.cues):
             x1, x2 = self.x_of(c.start), self.x_of(c.end)
@@ -525,7 +567,11 @@ class Timeline(QWidget):
             return                      # ensure_visible da goi update() day du
         x_moi = self.x_of(t)
         lo, hi = (x_cu, x_moi) if x_cu <= x_moi else (x_moi, x_cu)
-        self.update(QRect(lo - 3, 0, (hi - lo) + 7, self.height()))
+        # Phai phu HET o vuong dau doc: no ve o QRect(x-5, 0, 10, 8), tuc
+        # x-5..x+4. Chua du be rong thi moi khung de lai vai pixel do, don lai
+        # thanh mot vach do dac keo suot dai thuoc.
+        self.update(QRect(lo - HEAD_W, 0, (hi - lo) + HEAD_W * 2 + 2,
+                          self.height()))
 
     def ensure_visible(self, t: float) -> None:
         span = self.visible_span()
@@ -670,7 +716,7 @@ class Timeline(QWidget):
         pos = e.pos()
         # Kéo biên co dãn lớp: bắt cả ở cột nhãn bên trái, vì đó là chỗ người
         # ta đưa chuột tới theo phản xạ.
-        k = self.lane_edge_at(pos.y())
+        k = self.lane_edge_at(pos.y(), pos.x())
         if k >= 0:
             self._drag, self._mode, self._lane_edge = -3, "lane", k
             self._y0 = pos.y()
@@ -723,7 +769,7 @@ class Timeline(QWidget):
             self._y0 = e.pos().y()
             return
         if self._drag == "":
-            if self.lane_edge_at(e.pos().y()) >= 0:
+            if self.lane_edge_at(e.pos().y(), e.pos().x()) >= 0:
                 self.setCursor(Qt.CursorShape.SizeVerCursor)
                 if self._hover != (-1, -1):
                     self._hover = (-1, -1)

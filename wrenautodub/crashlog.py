@@ -67,9 +67,15 @@ def _bao_cho_nguoi_dung(tom_tat: str) -> None:
         h.setDetailedText(tom_tat)
         h.exec()
     except Exception:
-        print(f"\nLỖI: {tom_tat.strip().splitlines()[-1] if tom_tat.strip() else ''}",
-              file=sys.stderr)
-        print(f"Dấu vết đầy đủ: {duong_dan_log()}", file=sys.stderr)
+        # Nhánh dự phòng cũng phải chịu được lỗi: duong_dan_log() gọi
+        # mkdir, ném OSError nếu không ghi được — mà đây là bộ BÁO lỗi, nó
+        # mà nổ thì exception bay ra khỏi chính sys.excepthook.
+        try:
+            dong = tom_tat.strip().splitlines()
+            print("LOI: " + (dong[-1] if dong else "(khong ro)"), file=sys.stderr)
+            print("Dau vet day du: " + str(duong_dan_log()), file=sys.stderr)
+        except Exception:
+            pass
 
 
 def install(hien_hop_thoai: bool = True) -> None:
