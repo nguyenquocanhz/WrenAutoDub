@@ -23,6 +23,12 @@
 !.github/**
 !packaging/
 !packaging/**
+!.claude/
+!.claude/**
+
+# Cấu hình riêng của máy, không đẩy lên
+.claude/settings.local.json
+.claude/*.bak
 
 # Rác sinh ra lúc chạy
 wrenautodub/__pycache__/
