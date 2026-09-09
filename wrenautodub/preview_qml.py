@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QMouseEvent, QPainter, QPixmap, QRegion
+from PyQt6.QtGui import QImage, QMouseEvent, QPainter, QRegion
 from PyQt6.QtQuick import QQuickPaintedItem
 from PyQt6.QtWidgets import QWidget
 
@@ -49,7 +49,7 @@ class PreviewItem(QQuickPaintedItem):
                        QWidget.RenderFlag.DrawWindowBackground
                        | QWidget.RenderFlag.DrawChildren)
 
-    def set_frame(self, pm: QPixmap) -> None:
+    def set_frame(self, pm: QImage) -> None:
         self.pv.frame = pm
         self.update()
 

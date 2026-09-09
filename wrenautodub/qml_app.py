@@ -140,6 +140,7 @@ class EditorBridge(QObject):
         self.timeline = item
         tl = item.tl
         tl.clips = self.proj.live_clips()
+        tl.dub_clips = self.proj.dub_clips
         tl.ripple = self.proj.ripple
         tl.speeds = self.proj.speeds
         tl.regions = self.proj.regions
@@ -151,6 +152,7 @@ class EditorBridge(QObject):
         # QML chi doi hinh ve tren widget, con proj khong he hay biet - luc
         # luu hay xuat la mat sach, khong bao loi gi.
         tl.clipsChanged.connect(self._pull_clips)
+        tl.dubClipsChanged.connect(self._pull_dub_clips)
         tl.speedsChanged.connect(self._pull_speeds)
         tl.cuesChanged.connect(self._pull_cues)
         tl.regionsChanged.connect(self._pull_regions)
@@ -163,6 +165,10 @@ class EditorBridge(QObject):
     def _pull_clips(self) -> None:
         self.proj.clips = list(self.timeline.tl.clips)
         self.proj.ripple = self.timeline.tl.ripple
+        self.changed.emit()
+
+    def _pull_dub_clips(self) -> None:
+        self.proj.dub_clips = list(self.timeline.tl.dub_clips)
         self.changed.emit()
 
     def _pull_speeds(self) -> None:
@@ -184,6 +190,7 @@ class EditorBridge(QObject):
     def _pull_all(self) -> None:
         """Chot lai moi thu sau mot thao tac hoan tat."""
         self._pull_clips()
+        self._pull_dub_clips()
         self._pull_speeds()
         self._pull_cues()
         self._pull_regions()

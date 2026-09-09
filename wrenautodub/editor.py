@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from PyQt6.QtCore import (QPoint, QProcess, QProcessEnvironment, QRect, Qt,
                           QTimer, pyqtSignal)
-from PyQt6.QtGui import (QBrush, QColor, QFont, QKeySequence, QPainter, QPen,
+from PyQt6.QtGui import (QBrush, QColor, QFont, QImage, QKeySequence, QPainter, QPen,
                          QPixmap, QShortcut)
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                              QDoubleSpinBox, QFileDialog, QFormLayout,
@@ -64,7 +64,7 @@ class Preview(QLabel):
     def __init__(self, proj: Project, parent=None):
         super().__init__(parent)
         self.proj = proj
-        self.frame: Optional[QPixmap] = None
+        self.frame: Optional[QImage] = None
         self.tool = ""              # "" = chỉ chọn; BLUR/DELOGO/LOGO = vẽ mới
         self.sel = -1
         self._drag = ""             # "new" | "move" | góc đang kéo
@@ -101,7 +101,7 @@ class Preview(QLabel):
         p = QPainter(self)
         p.fillRect(self.rect(), QColor(15, 16, 19))
         if self.frame and not self.frame.isNull():
-            p.drawPixmap(self.draw_rect(), self.frame)
+            p.drawImage(self.draw_rect(), self.frame)
         else:
             p.setPen(QColor(140, 143, 148))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,

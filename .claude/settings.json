@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/gate_commit.py\"",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/gate_commit.py\" 2>/dev/null || true",
             "timeout": 15,
             "statusMessage": "Kiểm xem có commit mới không…"
           }

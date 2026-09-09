@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import QProcess, Qt, QTimer
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QPixmap, QShortcut
+from PyQt6.QtGui import QColor, QFont, QImage, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox,
                              QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
                              QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -122,6 +122,7 @@ class EditorWindow(QWidget):
         self.tl.cues = self.cues
         self.tl.dub_offset = self.proj.sync_offset
         self.tl.clips = self.proj.live_clips()
+        self.tl.dub_clips = self.proj.dub_clips
         self.tl.ripple = self.proj.ripple
         self.tl.seeked.connect(self._tl_seeked)
         self.tl.speedsChanged.connect(self._speeds_live)
@@ -132,6 +133,7 @@ class EditorWindow(QWidget):
         self.tl.regionsChanged.connect(self._regions_dragged)
         self.tl.selectionChanged.connect(self._tl_selection)
         self.tl.clipsChanged.connect(self._clips_dragged)
+        self.tl.dubClipsChanged.connect(self._dub_clips_dragged)
         self.tl.setToolTip(
             "<b>Kéo được cả ba lớp</b>: chip phụ đề, đoạn tốc độ, thanh hiệu ứng.<br>"
             "Kéo giữa để dời, kéo hai mép để co giãn — có bắt dính vào đầu đọc "
@@ -627,6 +629,7 @@ class EditorWindow(QWidget):
 
     def _commit_clips(self) -> None:
         self.tl.clips = self.proj.live_clips()
+        self.tl.dub_clips = self.proj.dub_clips
         self.tl.ripple = self.proj.ripple
         self._commit()
 
@@ -717,14 +720,12 @@ class EditorWindow(QWidget):
 
     # ---- tín hiệu từ trình phát
 
-    def _player_frame(self, pm: QPixmap) -> None:
+    def _player_frame(self, pm: QImage) -> None:
         self.preview.frame = pm
         self.preview.update()
 
     def _player_pos(self, t: float) -> None:
-        self.tl.playhead = t
-        self.tl.ensure_visible(t)
-        self.tl.update()
+        self.tl.update_playhead(t)
         self.lb_time.setText(f"{int(t // 60)}:{t % 60:04.1f}")
         self._highlight_cue(t)
 
@@ -792,7 +793,7 @@ class EditorWindow(QWidget):
         p.start("ffmpeg", args)
 
     def _frame_done(self, *_a) -> None:
-        pm = QPixmap()
+        pm = QImage()
         if self._frame_buf and pm.loadFromData(bytes(self._frame_buf), "PNG"):
             self.preview.frame = pm
             self.preview.update()
@@ -990,6 +991,11 @@ class EditorWindow(QWidget):
         self.proj.clips = list(self.tl.clips)
         self._update_estimate()
 
+    def _dub_clips_dragged(self) -> None:
+        """Kéo hoặc trim clip trên lớp thuyết minh — nhát cắt riêng của tiếng."""
+        self.proj.dub_clips = list(self.tl.dub_clips)
+        self._update_estimate()
+
     def _tl_selection(self, lane: int, idx: int) -> None:
         """Chọn trên dòng thời gian thì mở đúng bảng bên phải."""
         from .timeline import L_FX, L_SPEED, L_SUB, L_VIDEO
@@ -1111,6 +1117,7 @@ class EditorWindow(QWidget):
         self.tl.speeds = self.proj.speeds
         self.tl.regions = self.proj.regions
         self.tl.clips = self.proj.live_clips()
+        self.tl.dub_clips = self.proj.dub_clips
         self.tl.ripple = self.proj.ripple
         self.tl.dub_offset = self.proj.sync_offset
         self.tl.sel = -1

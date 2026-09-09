@@ -78,6 +78,21 @@ class FilmStrip(QObject):
         i = max(0, min(self.tiles - 1, int(frac * self.tiles)))
         return self.pixmap.copy(i * w, 0, w, self.pixmap.height())
 
+    def tile_rect(self, frac: float):
+        """O nguon tren dai anh, de drawPixmap ve thang khong phai chep.
+
+        tile_at() chep han mot QPixmap moi cho tung o, tung lan ve - 15 o
+        nhan 25 fps la 375 lan chep anh moi giay, khong de lam gi.
+        """
+        from PyQt6.QtCore import QRect
+        if not self.pixmap or self.pixmap.isNull() or self.tiles <= 0:
+            return None
+        w = self.pixmap.width() // self.tiles
+        if w <= 0:
+            return None
+        i = max(0, min(self.tiles - 1, int(frac * self.tiles)))
+        return QRect(i * w, 0, w, self.pixmap.height())
+
 
 class _WaveWorker(QThread):
     done = pyqtSignal(object)

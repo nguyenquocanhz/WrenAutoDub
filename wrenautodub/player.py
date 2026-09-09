@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QObject, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
 
@@ -26,7 +26,7 @@ MIX_ORIG, MIX_DUB, MIX_BOTH = "goc", "thuyetminh", "ca_hai"
 class VideoPlayer(QObject):
     """Bọc hai QMediaPlayer: một cho hình + tiếng gốc, một cho giọng thuyết minh."""
 
-    frameReady = pyqtSignal(QPixmap)
+    frameReady = pyqtSignal(QImage)
     positionChanged = pyqtSignal(float)     # giây
     stateChanged = pyqtSignal(bool)         # True = đang chạy
     failed = pyqtSignal(str)
@@ -46,8 +46,10 @@ class VideoPlayer(QObject):
         self.has_dub = False
         self.duration = 0.0
         self._ok = True
+        self._moi_nap = False       # dang cho khung hinh dau tien sau khi mo
 
         self.sink.videoFrameChanged.connect(self._on_frame)
+        self.video.mediaStatusChanged.connect(self._on_status)
         self.video.positionChanged.connect(self._on_pos)
         self.video.playbackStateChanged.connect(self._on_state)
         self.video.errorOccurred.connect(self._on_error)
@@ -61,6 +63,7 @@ class VideoPlayer(QObject):
         if self.has_dub:
             self.dub.setSource(QUrl.fromLocalFile(str(Path(dub).resolve())))
         self._ok = True
+        self._moi_nap = True
 
     def usable(self) -> bool:
         return self._ok
@@ -125,7 +128,34 @@ class VideoPlayer(QObject):
         img: QImage = frame.toImage()
         if img.isNull():
             return
-        self.frameReady.emit(QPixmap.fromImage(img))
+        # Phat thang QImage. Doi qua QPixmap tuong nhu re nhung do la mot lan
+        # chuyen dinh dang cong mot lan tai len GPU cho MOI khung: da do,
+        # bo no giam CPU tu 48.5% xuong 26.2% mot loi ma van du 25 fps.
+        self.frameReady.emit(img)
+
+    def _on_status(self, st) -> None:
+        """Nhá phát rồi dừng ngay, chỉ để lấy khung hình đầu tiên.
+
+        QMediaPlayer khong giai ma khung nao cho toi khi that su phat. Chi
+        setSource roi doi thi khung xem truoc dung o "Dang lay khung hinh..."
+        vinh vien - da do: qua 15 giay van trong, ke ca sau khi goi seek(0).
+        Nha mot cai thi khung dau tien ve sau 0.15 giay.
+        """
+        if not self._moi_nap:
+            return
+        ok = (QMediaPlayer.MediaStatus.LoadedMedia,
+              QMediaPlayer.MediaStatus.BufferedMedia)
+        if st not in ok:
+            return
+        self._moi_nap = False
+        self.a_video.setMuted(True)          # dung de bat ra tieng khi vua mo
+        self.video.play()
+        QTimer.singleShot(0, self._dung_nha)
+
+    def _dung_nha(self) -> None:
+        self.video.pause()
+        self.video.setPosition(0)
+        self.a_video.setMuted(False)
 
     def _on_pos(self, ms: int) -> None:
         if self.has_dub and self.playing():

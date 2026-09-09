@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence
 
-from PyQt6.QtCore import QPoint, QRect, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+from PyQt6.QtCore import QLine, QPoint, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
 from .edit import BLUR, DELOGO, LOGO, Region
 from .media_strip import FilmStrip, Waveform
-from .clips import Clip, layout as clip_layout, ripple_close
+from .clips import Clip, ensure, layout as clip_layout, ripple_close
 from .timing import Speed, normalize
 
 RULER_H = 22
@@ -27,6 +27,8 @@ LANES = [("Phụ đề", 24), ("Hình", 46), ("Thuyết minh", 34),
          ("Tốc độ", 22), ("Hiệu ứng", 20)]
 L_SUB, L_VIDEO, L_DUB, L_SPEED, L_FX = range(5)
 LANE_GAP = 3
+LANE_MIN = 16       # chieu cao toi thieu cua mot lop, pixel
+LANE_EDGE = 4       # be rong vung bat de keo bien giua hai lop
 
 C_BG = QColor(20, 21, 24)
 C_LANE = QColor(30, 32, 36)
@@ -55,11 +57,17 @@ class Timeline(QWidget):
     regionsChanged = pyqtSignal()       # kéo thanh hiệu ứng
     selectionChanged = pyqtSignal(int, int)     # (lớp, chỉ số)
     clipsChanged = pyqtSignal()                 # kéo / trim clip
+    dubClipsChanged = pyqtSignal()              # kéo / trim clip thuyết minh
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.duration = 1.0
         self.playhead = 0.0
+        self.dub_clips = []                # nhat cat rieng cua track tieng
+        self.lane_w = [1.0] * len(LANES)   # trong so chieu cao tung lop
+        self._lane_edge = -1               # bien dang keo, -1 = khong
+        self._wave_key = None       # cache cot song am, xem _paint_wave
+        self._wave_cot = []
         self.speeds: List[Speed] = []
         self.regions: List[Region] = []
         self.cues: Sequence = []
@@ -118,13 +126,47 @@ class Timeline(QWidget):
         return max(0.0, min(self.duration, t))
 
     def scale(self) -> float:
-        """Kéo widget cao lên thì mọi lớp dày ra theo — ảnh và sóng âm to hơn."""
-        base = sum(x[1] for x in LANES)
+        """Kéo widget cao lên thì mọi lớp dày ra theo — ảnh và sóng âm to hơn.
+
+        Tính theo tổng trọng số nên khi người dùng kéo cao một lớp lên, các lớp
+        còn lại co lại vừa đủ — thanh thời gian không bao giờ tràn ra ngoài.
+        """
+        base = sum(LANES[i][1] * self.lane_w[i] for i in range(len(LANES)))
         room = self.height() - RULER_H - LANE_GAP * len(LANES) - 8
-        return max(1.0, room / max(1, base))
+        return max(1.0, room / max(1.0, base))
 
     def lane_h(self, i: int) -> int:
-        return int(LANES[i][1] * self.scale())
+        return max(LANE_MIN, int(LANES[i][1] * self.lane_w[i] * self.scale()))
+
+    def lane_edge_at(self, y: int) -> int:
+        """Con trỏ đang ở mép dưới của lớp nào (để kéo co dãn)? -1 nếu không."""
+        for i in range(len(LANES) - 1):
+            bien = self.lane_y(i) + self.lane_h(i) + LANE_GAP // 2
+            if abs(y - bien) <= LANE_EDGE:
+                return i
+        return -1
+
+    def keo_bien_lop(self, i: int, dy: int) -> None:
+        """Kéo mép giữa lớp i và i+1: lớp trên dày ra, lớp dưới mỏng đi."""
+        if not (0 <= i < len(LANES) - 1):
+            return
+        sc = self.scale()
+        h1 = LANES[i][1] * self.lane_w[i] * sc
+        h2 = LANES[i + 1][1] * self.lane_w[i + 1] * sc
+        # KEP vao gioi han, dung tu choi ca cu keo. Keo nhanh mot phat 40px se
+        # bi huy sach neu chi kiem roi return, nguoi dung tuong tinh nang hong.
+        dy = max(LANE_MIN - h1, min(dy, h2 - LANE_MIN))
+        if abs(dy) < 0.5:
+            return
+        self.lane_w[i] = (h1 + dy) / max(0.001, LANES[i][1] * sc)
+        self.lane_w[i + 1] = (h2 - dy) / max(0.001, LANES[i + 1][1] * sc)
+        self._wave_key = None       # đổi chiều cao thì sóng âm phải vẽ lại
+        self.update()
+
+    def reset_lane_heights(self) -> None:
+        self.lane_w = [1.0] * len(LANES)
+        self._wave_key = None
+        self.update()
 
     def lane_y(self, i: int) -> int:
         return RULER_H + sum(self.lane_h(j) + LANE_GAP for j in range(i))
@@ -197,6 +239,12 @@ class Timeline(QWidget):
     def _paint_subs(self, p: QPainter, r: QRect) -> None:
         y, h = self.lane_y(L_SUB), self.lane_h(L_SUB)
         fm = QFontMetrics(p.font())
+        # Thu phong ca phim thi ca 154 chip deu nam trong khung. Ve rieng tung
+        # cai la 154 lenh drawRoundedRect (do duoc 4.8 ms moi lan ve). Gop het
+        # chip THUONG vao mot QPainterPath roi ve mot lan; chi cai dang doc,
+        # dang chon va dang di chuot moi ve rieng vi khac mau.
+        duong = QPainterPath()
+        rieng = []
         for i, c in enumerate(self.cues):
             x1, x2 = self.x_of(c.start), self.x_of(c.end)
             if x2 < r.x() or x1 > r.right():
@@ -206,12 +254,26 @@ class Timeline(QWidget):
             on = i == self.cur_cue
             picked = self.sel_lane == L_SUB and i == self.sel_idx
             hovered = self._hover == (L_SUB, i)
-            col = C_SUBCHIP_ON if on else (C_SUBCHIP.lighter(118) if hovered
-                                           else C_SUBCHIP)
-            p.setBrush(QBrush(col))
-            p.setPen(QPen(C_SEL if picked else col.lighter(130),
-                          2 if picked else 1))
-            p.drawRoundedRect(rc, 4, 4)
+            if on or picked or hovered:
+                rieng.append((rc, w, c, on, picked, hovered))
+            else:
+                duong.addRoundedRect(QRectF(rc), 4, 4)
+                if w > 34:
+                    rieng.append((rc, w, c, False, False, None))
+
+        if not duong.isEmpty():
+            p.setBrush(QBrush(C_SUBCHIP))
+            p.setPen(QPen(C_SUBCHIP.lighter(130), 1))
+            p.drawPath(duong)
+
+        for rc, w, c, on, picked, hovered in rieng:
+            if hovered is not None:     # chip khac mau -> ve ca nen
+                col = C_SUBCHIP_ON if on else (C_SUBCHIP.lighter(118) if hovered
+                                               else C_SUBCHIP)
+                p.setBrush(QBrush(col))
+                p.setPen(QPen(C_SEL if picked else col.lighter(130),
+                              2 if picked else 1))
+                p.drawRoundedRect(rc, 4, 4)
             if w > 34:
                 p.setPen(QColor(250, 250, 252) if on else QColor(228, 234, 242))
                 p.drawText(rc.adjusted(5, 0, -3, 0),
@@ -229,9 +291,9 @@ class Timeline(QWidget):
         x = r.x()
         while x < r.right():
             frac = (self.t_of(x)) / max(self.duration, .001)
-            tile = self.strip.tile_at(frac)
-            if tile:
-                p.drawPixmap(QRect(x, y, tw, h), tile)
+            src = self.strip.tile_rect(frac)
+            if src is not None:
+                p.drawPixmap(QRect(x, y, tw, h), self.strip.pixmap, src)
             x += tw
         # Phải bỏ brush: lớp phụ đề vẽ trước để lại brush xanh, không xoá thì
         # cái khung viền dưới đây tô đè kín cả filmstrip.
@@ -247,13 +309,31 @@ class Timeline(QWidget):
             p.drawText(QRect(r.x() + 8, y, 240, h),
                        Qt.AlignmentFlag.AlignVCenter, "đang đọc sóng âm…")
             return
+        # Gom thanh MOT lenh drawLines. Goi drawLine tung cot la ~1470 lenh
+        # QPainter moi lan ve, nhan 25 fps thanh hon 36.000 lenh mot giay.
+        # Luc phat, song am KHONG doi - chi vach dau phat chay. Dung lai cac
+        # cot da tinh thay vi lap 1500 vong moi khung hinh (do duoc 13.9 ms
+        # moi lan ve, chiem 62% toan bo thoi gian ve thanh thoi gian).
+        # Khoa duoi day liet ke du moi thu ma hinh dang song phu thuoc vao,
+        # nen khong co trang thai an nao lam cache lech.
+        khoa = (r.x(), r.right(), mid, h,
+                round(self.scroll_t, 4), round(self.visible_span(), 6),
+                round(self.dub_offset, 4), round(self.duration, 4),
+                id(self.wave.peaks), len(self.wave.peaks))
+        if khoa != self._wave_key:
+            dl = self.duration if self.duration > 0.001 else 0.001
+            bien = h / 2 - 2
+            cot = []
+            for x in range(r.x(), r.right()):
+                t = self.t_of(x) - self.dub_offset
+                if t < 0 or t > self.duration:
+                    continue
+                a = self.wave.at(t / dl) * bien
+                cot.append(QLine(x, int(mid - a), x, int(mid + a)))
+            self._wave_cot, self._wave_key = cot, khoa
         p.setPen(QPen(C_DUB, 1))
-        for x in range(r.x(), r.right()):
-            t = self.t_of(x) - self.dub_offset
-            if t < 0 or t > self.duration:
-                continue
-            a = self.wave.at(t / max(self.duration, .001)) * (h / 2 - 2)
-            p.drawLine(x, int(mid - a), x, int(mid + a))
+        if self._wave_cot:
+            p.drawLines(self._wave_cot)
 
     def _paint_clips(self, p: QPainter, r: QRect) -> None:
         """Mỗi clip là một khối bo góc có viền, nhãn và tay nắm trim.
@@ -382,6 +462,24 @@ class Timeline(QWidget):
             return
         self.update()
 
+    def update_playhead(self, t: float) -> None:
+        """Doi vach dau phat ma khong ve lai ca thanh thoi gian.
+
+        Ve lai toan bo ton 21.7 ms tren phim 15 phut (154 chip phu de, dai
+        anh khung hinh, song am). Nhan 25 lan mot giay chi de dich mot vach
+        doc la het 41.8% mot loi CPU. Chi lam ban dai hep quanh vach cu va
+        vach moi thi Qt cat phan con lai.
+        """
+        x_cu = self.x_of(self.playhead)
+        self.playhead = t
+        cuon_truoc = self.scroll_t
+        self.ensure_visible(t)
+        if self.scroll_t != cuon_truoc:
+            return                      # ensure_visible da goi update() day du
+        x_moi = self.x_of(t)
+        lo, hi = (x_cu, x_moi) if x_cu <= x_moi else (x_moi, x_cu)
+        self.update(QRect(lo - 3, 0, (hi - lo) + 7, self.height()))
+
     def ensure_visible(self, t: float) -> None:
         span = self.visible_span()
         if t < self.scroll_t or t > self.scroll_t + span:
@@ -411,12 +509,18 @@ class Timeline(QWidget):
         if lane == L_VIDEO:
             return [(a, b) for a, b, i in clip_layout(self.clips, self.ripple)
                     if i >= 0]
+        if lane == L_DUB:
+            # dub_clips rỗng = track thuyết minh cắt y hệt hình. Vẫn cho kéo,
+            # chạm vào là tách ra thành nhát cắt riêng (xem _apply_dub).
+            src = self.dub_clips if self.dub_clips else self.clips
+            return [(a, b) for a, b, i in clip_layout(src, self.ripple)
+                    if i >= 0]
         return []
 
     def _hit(self, pos: QPoint):
         """Trả về (lớp, chỉ số, kiểu kéo) — kiểu là move / l / r."""
         lane = self.lane_at(pos.y())
-        if lane not in (L_SUB, L_SPEED, L_FX, L_VIDEO):
+        if lane not in (L_SUB, L_SPEED, L_FX, L_VIDEO, L_DUB):
             return -1, -1, ""
         for i, (a, b) in enumerate(self._items(lane)):
             x1, x2 = self.x_of(a), self.x_of(b)
@@ -433,7 +537,7 @@ class Timeline(QWidget):
         r = self.track_rect()
         tol = self.visible_span() / max(1, r.width()) * 7
         cands = [self.playhead, 0.0, self.duration]
-        for lane in (L_SUB, L_SPEED, L_FX):
+        for lane in (L_SUB, L_SPEED, L_FX, L_VIDEO, L_DUB):
             for i, (a, b) in enumerate(self._items(lane)):
                 if (lane, i) in skip:
                     continue
@@ -465,12 +569,43 @@ class Timeline(QWidget):
         self.clips = ripple_close(seq) if self.ripple else seq
         self.clipsChanged.emit()
 
+    def _apply_dub(self, i: int, a: float, b: float) -> None:
+        """Kéo / trim clip trên lớp thuyết minh.
+
+        Giống _apply_clip nhưng ghi vào dub_clips. dub_clips rỗng nghĩa là
+        track tiếng cắt y hệt hình; vừa chạm vào là phải sao chép nhát cắt của
+        hình ra thành bản riêng, không thì sửa tiếng lại đổi luôn cả hình.
+        """
+        if not self.dub_clips:
+            self.dub_clips = [Clip(c.src_start, c.src_end, c.at)
+                              for c in ensure(self.clips, self.duration)]
+        lay = [(x, y, k) for x, y, k in clip_layout(self.dub_clips, self.ripple)
+               if k >= 0]
+        if not (0 <= i < len(lay)):
+            return
+        da, db, _k = lay[i]
+        seq = (ripple_close(self.dub_clips) if self.ripple
+               else sorted(self.dub_clips, key=lambda x: x.at))
+        c = seq[i]
+        if abs((b - a) - (db - da)) < 0.01:          # dời nguyên khối
+            c.at = max(0.0, a)
+        else:                                        # trim hai mép
+            c.src_start = max(0.0, c.src_start + (a - da))
+            c.src_end = min(self.duration, c.src_end + (b - db))
+            if c.src_end - c.src_start < 0.1:
+                c.src_end = c.src_start + 0.1
+        self.dub_clips = ripple_close(seq) if self.ripple else seq
+        self.dubClipsChanged.emit()
+
     def _apply(self, lane: int, i: int, a: float, b: float) -> None:
         a, b = max(0.0, a), min(self.duration, b)
         if b - a < 0.05:
             return
         if lane == L_VIDEO:
             self._apply_clip(i, a, b)
+            return
+        if lane == L_DUB:
+            self._apply_dub(i, a, b)
             return
         if lane == L_SUB:
             self.cues[i].start, self.cues[i].end = a, b
@@ -486,6 +621,13 @@ class Timeline(QWidget):
 
     def mousePressEvent(self, e) -> None:
         pos = e.pos()
+        # Kéo biên co dãn lớp: bắt cả ở cột nhãn bên trái, vì đó là chỗ người
+        # ta đưa chuột tới theo phản xạ.
+        k = self.lane_edge_at(pos.y())
+        if k >= 0:
+            self._drag, self._mode, self._lane_edge = -3, "lane", k
+            self._y0 = pos.y()
+            return
         if pos.x() < LEFT_W:
             return
         self._moved = False
@@ -529,7 +671,17 @@ class Timeline(QWidget):
         self.update()
 
     def mouseMoveEvent(self, e) -> None:
+        if self._drag == -3 and self._mode == "lane":
+            self.keo_bien_lop(self._lane_edge, e.pos().y() - self._y0)
+            self._y0 = e.pos().y()
+            return
         if self._drag == "":
+            if self.lane_edge_at(e.pos().y()) >= 0:
+                self.setCursor(Qt.CursorShape.SizeVerCursor)
+                if self._hover != (-1, -1):
+                    self._hover = (-1, -1)
+                    self.update()
+                return
             lane, i, mode = self._hit(e.pos())
             if (lane, i) != self._hover:
                 self._hover = (lane, i)
@@ -582,6 +734,10 @@ class Timeline(QWidget):
         lane, mode = self._drag, self._mode
         self._drag, self._mode = "", ""
 
+        if mode == "lane":
+            self._lane_edge = -1
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            return          # co dãn lớp không phải sửa dự án, đừng đẩy vào undo
         if mode == "head":
             return
 
