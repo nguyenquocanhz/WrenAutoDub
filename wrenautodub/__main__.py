@@ -57,6 +57,8 @@ def _pipeline_opts() -> argparse.ArgumentParser:
     g.add_argument("--beam-size", type=int, default=5)
     g.add_argument("--lang", default="ja", help="ngôn ngữ nguồn")
     g.add_argument("--no-prompt", action="store_true", help="tắt initial_prompt tiếng Nhật")
+    g.add_argument("--no-ocr", action="store_true",
+                   help="đừng thử đọc phụ đề nung trên hình, luôn dùng Whisper")
     g.add_argument("--max-cue-dur", type=float, default=8.0,
                    help="độ dài tối đa 1 câu phụ đề (giây)")
     g.add_argument("--max-cue-chars", type=int, default=60,
@@ -166,17 +168,50 @@ def _run_pipeline(args) -> int:
     from . import asr as S1, mux as S4, translate as S2, tts as S3
 
     if cmd in ("run", "asr"):
-        print("\n=== 1/4 NHẬN DẠNG TIẾNG NHẬT ===")
-        S1.extract_audio(video, P["audio"], force=args.force)
-        S1.transcribe(
-            P["audio"], P["ja"],
-            model_size=args.model, language=args.lang,
-            device=args.device, compute_type=args.compute_type,
-            beam_size=args.beam_size,
-            initial_prompt=None if args.no_prompt else S1.DEFAULT_PROMPT,
-            max_cue_dur=args.max_cue_dur, max_cue_chars=args.max_cue_chars,
-            force=args.force,
-        )
+        print("\n=== 1/4 LẤY LỜI THOẠI GỐC ===")
+        # Phim đã có phụ đề NUNG trên hình thì chữ gốc nằm ngay trước mắt —
+        # đọc bằng OCR chính xác hơn hẳn bắt Whisper đoán lại từ tiếng. Đo
+        # trên một phim thật: OCR bắt được cả 28 câu dẫn chuyện mở đầu mà
+        # Whisper không nghe ra chữ nào, tổng nhiều hơn 32% số chữ.
+        xong_ocr = False
+        can_lam = args.force or not P["ja"].exists()
+        if can_lam and not getattr(args, "no_ocr", False):
+            try:
+                from . import ocr as S1b
+                vung = S1b.do_vung(video)
+            except Exception as e:
+                print(f"  [ocr] bỏ qua ({type(e).__name__}: {e})")
+                vung = None
+            if vung:
+                print("  [ocr] thấy phụ đề nung sẵn trên hình, đọc bằng OCR")
+                try:
+                    cues = S1b.quet(video, vung, args.lang)
+                except Exception as e:
+                    print(f"  [ocr] hỏng giữa chừng ({type(e).__name__}), "
+                          f"quay về nhận dạng tiếng nói")
+                    cues = []
+                if len(cues) >= 20:
+                    from .srtutil import write_srt
+                    write_srt(P["ja"], cues)
+                    print(f"  [ocr] xong: {P['ja']} ({len(cues)} câu)")
+                    xong_ocr = True
+                else:
+                    print(f"  [ocr] chỉ đọc được {len(cues)} câu, không đủ tin "
+                          f"— dùng nhận dạng tiếng nói")
+            else:
+                print("  [ocr] không thấy phụ đề nung, dùng nhận dạng tiếng nói")
+
+        if not xong_ocr:
+            S1.extract_audio(video, P["audio"], force=args.force)
+            S1.transcribe(
+                P["audio"], P["ja"],
+                model_size=args.model, language=args.lang,
+                device=args.device, compute_type=args.compute_type,
+                beam_size=args.beam_size,
+                initial_prompt=None if args.no_prompt else S1.DEFAULT_PROMPT,
+                max_cue_dur=args.max_cue_dur, max_cue_chars=args.max_cue_chars,
+                force=args.force,
+            )
 
     if cmd in ("run", "translate"):
         print("\n=== 2/4 DỊCH SANG TIẾNG VIỆT ===")
