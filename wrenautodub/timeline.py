@@ -31,19 +31,69 @@ LANE_MIN = 16       # chieu cao toi thieu cua mot lop, pixel
 LANE_EDGE = 4       # be rong vung bat de keo bien giua hai lop
 HEAD_W = 6          # nua be rong o vuong dau phat, dung cho vung ve lai
 
-C_BG = QColor(20, 21, 24)
-C_LANE = QColor(30, 32, 36)
-C_GRID = QColor(48, 51, 56)
-C_TEXT = QColor(150, 154, 160)
-C_HEAD = QColor(232, 84, 76)
-C_DUB = QColor(96, 176, 132)
-C_SUBCHIP = QColor(72, 132, 196)
-C_SUBCHIP_ON = QColor(108, 174, 240)
-C_FAST = QColor(214, 132, 52)
-C_SLOW = QColor(150, 112, 210)
-C_CUT = QColor(250, 230, 120)      # vạch cắt giữa hai clip
-C_GAP = QColor(58, 60, 66)
-C_SEL = QColor(252, 250, 238)      # viền + tay nắm khi đang chọn
+# Thang bo goc: chi ba bac, khong dat gia tri le. R_LON cho khoi lon (clip,
+# khoang trong), R_VUA cho chip va thanh mong, R_NHO cho tay nam ti hon.
+R_LON, R_VUA, R_NHO = 8, 4, 2
+
+# Co chu tinh bang PIXEL, khong phai point. Point doi theo DPI: setPointSize(7)
+# ra 9px o ti le 100% nhung 14px o 150%, trong khi chieu cao lop tinh bang
+# pixel cung -> chu tran ra ngoai chip. Da do that tren may 96 DPI.
+FONT_THUOC = 10     # nhan thuoc va chu trong chip
+
+# ===================================================================== màu
+# Hai tầng, học từ cách CapCut tổ chức 365 biến CSS của họ.
+#
+# TẦNG 1 — màu gốc, chỉ là giá trị, không mang ý nghĩa. Đánh số theo thang.
+# Bảy bậc nền thay vì bốn: thiếu bậc thì panel lồng nhau trôi vào nhau.
+# Mọi bậc đều NGẢ XANH (kênh blue cao hơn red/green vài đơn vị) — xám trung
+# tính làm giao diện tối trông bẹt và bẩn.
+_NEN_0 = QColor(14, 15, 18)         # sâu nhất, dưới cả nền cửa sổ
+_NEN_1 = QColor(20, 21, 24)         # nền thanh thời gian
+_NEN_2 = QColor(25, 27, 31)
+_NEN_3 = QColor(30, 32, 36)         # nền một lớp
+_NEN_4 = QColor(38, 40, 46)
+_NEN_5 = QColor(48, 51, 56)         # đường kẻ
+_NEN_6 = QColor(58, 60, 66)         # viền rõ, khoảng trống
+
+_CHU_0 = QColor(252, 250, 238)      # sáng nhất, dành cho thứ đang chọn
+_CHU_1 = QColor(228, 234, 242)
+_CHU_2 = QColor(150, 154, 160)      # chữ thường
+_CHU_3 = QColor(110, 114, 120)      # chữ mờ
+
+_LAM_1 = QColor(72, 132, 196)       # màu dữ liệu: lớp phụ đề
+_LAM_2 = QColor(108, 174, 240)
+_LUC_1 = QColor(96, 176, 132)       # lớp thuyết minh
+_DO_1 = QColor(232, 84, 76)         # đầu phát
+_CAM_1 = QColor(214, 132, 52)       # tăng tốc
+_TIM_1 = QColor(150, 112, 210)      # giảm tốc
+_VANG_1 = QColor(250, 230, 120)     # nhát cắt
+
+
+def pha(c: QColor, a: float) -> QColor:
+    """Bản trong suốt của một màu. Đây là chỗ Qt hơn CSS.
+
+    CapCut phải lưu thêm bộ ba RGB (`--white-0-rgb: 250,250,250`) mới chế
+    được `rgba(var(--white-0-rgb), .12)`, vì CSS không tách được kênh từ mã
+    hex. Qt thì lấy thẳng từ QColor, nên chỉ cần một nguồn màu duy nhất.
+    """
+    return QColor(c.red(), c.green(), c.blue(), int(max(0.0, min(1.0, a)) * 255))
+
+
+# TẦNG 2 — tên theo VAI TRÒ, trỏ vào tầng 1. Đổi diện mạo cả app thì sửa ở
+# đây, không đi lùng mã màu rải rác trong các hàm vẽ.
+C_BG = _NEN_1
+C_LANE = _NEN_3
+C_GRID = _NEN_5
+C_GAP = _NEN_6
+C_TEXT = _CHU_2
+C_SEL = _CHU_0                      # viền + tay nắm khi đang chọn
+C_HEAD = _DO_1
+C_DUB = _LUC_1
+C_SUBCHIP = _LAM_1
+C_SUBCHIP_ON = _LAM_2
+C_FAST = _CAM_1
+C_SLOW = _TIM_1
+C_CUT = _VANG_1                     # vạch cắt giữa hai clip
 C_FX = {BLUR: QColor(90, 170, 250), DELOGO: QColor(240, 140, 70),
         LOGO: QColor(120, 220, 140)}
 
@@ -255,7 +305,7 @@ class Timeline(QWidget):
         p.setClipRect(QRect(0, 0, self.width(), self.height()))
 
         f = QFont()
-        f.setPointSize(7)
+        f.setPixelSize(FONT_THUOC)
         p.setFont(f)
 
         t0, t1 = self.scroll_t, self.scroll_t + self.visible_span()
@@ -333,7 +383,7 @@ class Timeline(QWidget):
             if on or picked or hovered:
                 rieng.append((rc, w, c, on, picked, hovered))
             else:
-                duong.addRoundedRect(QRectF(rc), 4, 4)
+                duong.addRoundedRect(QRectF(rc), R_VUA, R_VUA)
                 if w > 34:
                     rieng.append((rc, w, c, False, False, None))
 
@@ -349,7 +399,7 @@ class Timeline(QWidget):
                 p.setBrush(QBrush(col))
                 p.setPen(QPen(C_SEL if picked else col.lighter(130),
                               2 if picked else 1))
-                p.drawRoundedRect(rc, 4, 4)
+                p.drawRoundedRect(rc, R_VUA, R_VUA)
             if w > 34:
                 p.setPen(QColor(250, 250, 252) if on else QColor(228, 234, 242))
                 p.drawText(rc.adjusted(5, 0, -3, 0),
@@ -433,7 +483,7 @@ class Timeline(QWidget):
             if i < 0:                       # khoảng trống: gạch chéo mờ
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QBrush(C_GAP, Qt.BrushStyle.BDiagPattern))
-                p.drawRoundedRect(QRect(x1, top, w, bot - top), 5, 5)
+                p.drawRoundedRect(QRect(x1, top, w, bot - top), R_LON, R_LON)
                 continue
 
             picked = i == self.sel_clip
@@ -447,7 +497,7 @@ class Timeline(QWidget):
                 p.setPen(QPen(C_CUT.lighter(115), 2))
             else:
                 p.setPen(QPen(C_CUT.darker(135), 1))
-            p.drawRoundedRect(rc, 5, 5)
+            p.drawRoundedRect(rc, R_LON, R_LON)
 
             if len(lay) > 1 and w > 46:     # nhãn clip
                 p.setPen(QColor(248, 246, 232) if picked else C_CUT)
@@ -460,7 +510,7 @@ class Timeline(QWidget):
                 p.setBrush(QBrush(C_SEL))
                 for hx in (rc.left(), rc.right() - 5):
                     p.drawRoundedRect(QRect(hx, rc.top() + 4, 5,
-                                            rc.height() - 8), 2, 2)
+                                            rc.height() - 8), R_NHO, R_NHO)
         p.setBrush(Qt.BrushStyle.NoBrush)
 
     def clip_at(self, t: float) -> int:
@@ -480,7 +530,7 @@ class Timeline(QWidget):
             p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(), alpha)))
             p.setPen(QPen(C_SEL if picked else col.lighter(125),
                           2 if picked else 1))
-            p.drawRoundedRect(rc, 4, 4)
+            p.drawRoundedRect(rc, R_VUA, R_VUA)
             if rc.width() > 26:
                 p.setPen(QColor(250, 250, 252))
                 p.drawText(rc, Qt.AlignmentFlag.AlignCenter, f"{s.factor:g}×")
@@ -501,7 +551,7 @@ class Timeline(QWidget):
                           2 if picked else 1))
             p.setBrush(QBrush(QColor(col.red(), col.green(), col.blue(),
                                      195 if picked else (170 if hovered else 140))))
-            p.drawRoundedRect(rc, 4, 4)
+            p.drawRoundedRect(rc, R_VUA, R_VUA)
 
     def _ruler_step(self):
         """(bước chính, bước phụ) tính bằng giây, chọn theo mức thu phóng.

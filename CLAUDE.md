@@ -110,6 +110,29 @@ GTX 1650 Ti 4GB, `int8_float16`, `beam_size=5`:
 `h264_nvenc` và `hevc_nvenc` chạy được. `av1_nvenc` KHÔNG (TU117 không có).
 ffmpeg trên máy này **không build OpenCL và Vulkan** — dùng CUDA/NVENC.
 
+## Thang giá trị giao diện
+
+Học từ CapCut (đo trên 89 file CSS của bản 9.3.0.3970, xem `D:\CapCutLearn`).
+Đừng đặt giá trị lẻ ngoài thang.
+
+| Thứ | Thang | Hằng số |
+|---|---|---|
+| Bo góc | 2 / 4 / 8 | `R_NHO` `R_VUA` `R_LON` |
+| Khoảng cách | bội số của 4, nửa bậc 2 và 6 | |
+| Cỡ chữ | 10 / 11 / 12 / 14 / 16 | `FONT_THUOC` |
+
+**Cỡ chữ phải dùng `setPixelSize`, không dùng `setPointSize`.** Point đổi theo
+DPI: `setPointSize(7)` ra 9px ở tỉ lệ 100% nhưng 14px ở 150%, trong khi chiều
+cao lớp tính bằng pixel cứng — chữ tràn ra ngoài chip.
+
+**Màu chia hai tầng.** Tầng gốc `_NEN_*` `_CHU_*` `_LAM_*`... chỉ là giá trị;
+tầng vai trò `C_BG` `C_SUBCHIP`... trỏ vào tầng gốc. Đổi diện mạo thì sửa tầng
+hai, đừng rải mã màu trong hàm vẽ. Nền có bảy bậc — thiếu bậc thì panel lồng
+nhau trôi vào nhau. Mọi bậc ngả xanh nhẹ, xám trung tính làm giao diện tối
+trông bẹt.
+
+Cần màu trong suốt thì dùng `pha(màu, 0.12)`, đừng khai màu mới.
+
 ## Văn phong code
 
 Tiếng Việt cho comment, docstring và mọi chuỗi hiện ra cho người dùng. Comment

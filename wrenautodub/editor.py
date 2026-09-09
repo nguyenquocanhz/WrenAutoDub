@@ -119,7 +119,7 @@ class Preview(QLabel):
 
             p.setPen(col)
             f = QFont()
-            f.setPointSize(8)
+            f.setPixelSize(11)     # pixel, khong phai point: xem timeline.FONT_THUOC
             p.setFont(f)
             p.drawText(rc.adjusted(4, -16, 0, 0), Qt.AlignmentFlag.AlignLeft,
                        f"{i + 1}. {KIND_LABEL.get(reg.kind, reg.kind)}")
